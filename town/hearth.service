@@ -1,0 +1,15 @@
+[Unit]
+Description=Hearth town API (Phase 2)
+After=network.target
+
+[Service]
+Type=simple
+User=hearth
+WorkingDirectory=/opt/hearth
+ExecStart=/bin/bash /opt/hearth/run.sh
+Environment=HEARTH_LAUNCH_TS=0
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
