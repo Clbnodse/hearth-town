@@ -1,0 +1,9 @@
+*.db
+*.log
+__pycache__/
+*keys*.json
+*founders*.json
+admin_keys.txt
+hearth.db
+brain.db
+.lastgood
