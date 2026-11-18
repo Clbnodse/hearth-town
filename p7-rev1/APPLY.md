@@ -21,10 +21,32 @@ Local copies: `~/workspace/game-collab-api/stage-v17-game-api41/server.py`,
 
 | Diff | sha256 | Lines |
 |---|---|---|
-| `diffs/server.py.diff` | `cafe1e57cee2281601621d05d4116e64496461f28c27e100fc80c6dd290888d6` | 1,729 |
+| `diffs/server.py.diff` | `a0e08893f54644924a244acba20a5601175fd80334228ea018b2a09fe865fc2e` | 1,797 |
 | `diffs/bounded_loop.py.diff` | `e5ee95091c9780bf2510e5119ce56c6ab39a7bed781229b639bb04c3e4ba961c` | 667 |
 | `diffs/reasoning.py.diff` | `a360c0d2825efb4782b0c2f875557d8cd9b2eda5e84cb1df5b1cf0adfa3aceef` | 120 (unchanged v1) |
 | `diffs/reasoning_suggest.py` | `2ed76f1d686617a0272cf28f8b7fd8bf482dbd13a8b8cee9d0b35ecf354a9678` | 60 (NEW file) |
+
+## Revision 1 + Claude re-review minors (msg-2ef3cacc, Nov 18)
+
+Claude re-ran his review on rev 1 and returned APPROVE with two
+minors fixed before deploy. Both are fixed in this package (the diff
+above is the minors version; the pre-minors diff was 1,729 lines,
+sha cafe1e57…):
+
+- **M1 — record-time allowlist** (`event_kind_not_in_allowlist`,
+  400): a goal/plan/action carrying a kind outside the run's
+  allowlist is now refused when appended, not only at `/action` —
+  so the trace can never show e.g. `action_authorized send_money`.
+  A goal with no candidate (goal None) is unaffected. Covered by
+  new test P7-29; P7-02's noop-only run now drives with `noop`.
+- **M2 — idempotency body mismatch** (`idempotency_body_mismatch`,
+  409): replaying a run-creation key with a different body (mode,
+  allowlist, policy_version, max_steps, max_wall_ms,
+  max_model_tokens, lease_seconds) is now 409 instead of a silent
+  200 of the original run. The fingerprint is stored with the key
+  (legacy string records keep the old behaviour). Covered by new
+  test P7-30; P7-00 now checks the REV server and expects 63
+  OpenAPI paths (rev 1 added the run-policy route).
 
 ## Apply — exact commands, in order
 
@@ -48,7 +70,7 @@ cp <revision>/diffs/reasoning_suggest.py ./reasoning_suggest.py
 
 # 4. Verify byte-identical to the revision's work files
 sha256sum server.py
-# expect: df851f394e601839513394ecde309fd12b7718dbee49d6f91be12b4420eb44fb
+# expect: a24b1fd5a4c70ddee018a2960c9dd8c616e0ad0583e1c08aab01d0f1d13f5966
 sha256sum bounded_loop.py reasoning.py reasoning_suggest.py
 # expect: d52213c079afb32bf390831353bfe1f7324a936c84ff8a35c7b808bc6d2e714b
 #         6775d11e08df5f4708e89ca6a17347ebb64e04857e9680e284ff9037e0db64c9
@@ -66,10 +88,13 @@ grep -c '20261114-game-api-42' server.py
 ## Alternative: regenerate from the bases with the build scripts
 
 The fixed files are generated, not hand-edited. Re-running the builders
-from the api-41 bases must produce byte-identical files:
+must produce byte-identical files. Note the chain: the server builder
+takes the **DRAFT** stage server (api-41 + the v1 formal-proposal
+diffs, `stage-v17-game-api42-DRAFT/server.py`) — NOT the bare api-41
+base, which has no P7 code for the anchors to match:
 
 ```bash
-cp <api-41 server.py> /tmp/server_regen.py
+cp <DRAFT server.py> /tmp/server_regen.py
 python3 <revision>/build/apply_server_fixes.py /tmp/server_regen.py
 cmp /tmp/server_regen.py <revision>/work/server.py   # expect: identical
 
@@ -85,7 +110,7 @@ cmp /tmp/rs_regen.py <revision>/work/reasoning_suggest.py
 ```bash
 cd <revision>/tests
 for t in test_p7_*.py; do python3 "$t"; done
-# expect: 29/29 PASS (P7-00..P7-28)
+# expect: 31/31 PASS (P7-00..P7-30)
 ```
 
 The harness (`p7_harness.py`) builds the REV stage from

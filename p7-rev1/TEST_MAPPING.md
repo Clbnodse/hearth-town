@@ -2,20 +2,20 @@
 
 Every Claude gap (12), every ChatGPT contract acceptance test (12), every
 Grok acceptance item (8), every matrix test (14), and every Claude audit
-finding (S1–S9, R1–R6) → concrete test file + expected output. All 29 tests
+finding (S1–S9, R1–R6) → concrete test file + expected output. All 31 tests
 pass; commands are run from
 `~/workspace/game-collab-api/priority7/revision/tests/` as
 `python3 test_p7_XX_<name>.py`. All tests run against the real server, real
 SQLite trace stores, and (where stated) real subprocesses — no mocks of the
 server, the store, or the subprocess boundary. The v1 mapping
 (`formal-proposal/TEST_MAPPING.md`) still describes the v1 suite; this file
-describes the revision: what changed in the 18 v1 tests, and the 11 new ones.
+describes the revision: what changed in the 18 v1 tests, and the 13 new ones.
 
 ## A. Claude's 12 gaps (msg-fe7dd927) — revision status
 
 | # | Gap | Test | Revision change |
 |---|---|---|---|
-| 1 | Runner identity: model process holds NO credential; only a separate executor with a per-run allowlist-scoped token can act | P7-01 + P7-02 | P7-01 REWRITTEN (R1): the hooks must NOT reach the child env; production source must contain no hook names. P7-02 unchanged. |
+| 1 | Runner identity: model process holds NO credential; only a separate executor with a per-run allowlist-scoped token can act | P7-01 + P7-02 | P7-01 REWRITTEN (R1): the hooks must NOT reach the child env; production source must contain no hook names. P7-02 updated (minors M1, Nov 18): `drive_to_authorized` takes an `action_type` — the noop-only run now drives with `noop`, since an out-of-allowlist kind is refused at record time. |
 | 2 | Fencing, not just leases; test 3 must use real separate processes racing | P7-04 | Policy set at start (rapid runs need min_cooldown 0). Unchanged otherwise. |
 | 3 | Kill switch TOCTOU | P7-05 | Policy set at start. Unchanged otherwise. Scope clarified by P7-28 (S9). |
 | 4 | UNKNOWN_OUTCOME state; block new runs until reconciled; no automatic retry | P7-06 | REWRITTEN (S3): a known refusal is BLOCKED, not UNKNOWN_OUTCOME; new run immediately possible. The lock itself is now covered by P7-18/P7-19 (S1/S2). |
@@ -33,7 +33,7 @@ describes the revision: what changed in the 18 v1 tests, and the 11 new ones.
 | # | Contract test | Test | Revision change |
 |---|---|---|---|
 | 1 | Ember completes one dry-run cycle, full ordered trace | P7-15 | Anchor count 8. Hook mechanism swapped. |
-| 2 | Same idempotency key twice → one execution only | P7-03 | Unchanged (create_run now also sends policy_version). |
+| 2 | Same idempotency key twice → one execution only | P7-03 + **P7-30** | Unchanged (create_run now also sends policy_version). P7-30 (minors M2, Nov 18): a replay with a different body is 409 `idempotency_body_mismatch`; same-body replay still 200, no token re-issue. |
 | 3 | Concurrent workers cannot both claim/execute one run | P7-03 + P7-04 | Unchanged. |
 | 4 | Cross-resident memory read/write rejected at storage boundary | P7-08 | See A8. |
 | 5 | Kill switch flipped after planning but before action blocks execution | P7-05 | Unchanged. |
@@ -47,11 +47,11 @@ describes the revision: what changed in the 18 v1 tests, and the 11 new ones.
 
 ## C. Grok's acceptance items (msg-924d7cb2, minimum 8) — revision status
 
-Unchanged from v1 (P7-04, P7-05, P7-06, P7-07, P7-11, P7-12, P7-10, P7-00 all pass in the revision). P7-06's meaning changed per S3 (known refusal → BLOCKED, not UNKNOWN_OUTCOME); the lock behaviour it used to cover now lives in P7-18/P7-19.
+Unchanged from v1 (P7-04, P7-05, P7-06, P7-07, P7-11, P7-12, P7-10, P7-00 all pass in the revision). P7-06's meaning changed per S3 (known refusal → BLOCKED, not UNKNOWN_OUTCOME); the lock behaviour it used to cover now lives in P7-18/P7-19. P7-00 now checks the REV server (not the v1 DRAFT) and expects 63 OpenAPI paths — rev 1 added the run-policy route (minors, Nov 18).
 
 ## D. ChatGPT 14-test matrix (msg-23742ec0) → files (revision)
 
-Same 14 files as v1, updated as described in §A. Extra v1 tests: P7-00, P7-15, P7-16, P7-17. New in rev1: P7-18…P7-28 (see §G).
+Same 14 files as v1, updated as described in §A. Extra v1 tests: P7-00, P7-15, P7-16, P7-17. New in rev1: P7-18…P7-28 (see §G) + P7-29/P7-30 (see §H).
 
 ## E. Gaps — enforced in code, no dedicated test (NOT claimed as passing)
 
@@ -61,9 +61,9 @@ Same 14 files as v1, updated as described in §A. Extra v1 tests: P7-00, P7-15, 
 4. **Legacy runner suite unverified:** `test_bounded_loop.py`, `test_fixes*.py`, `test_reasoning.py` require REAL vault tokens and cannot run in this environment. Noted as unverified, not as passing. The P7 runner changes are additive behind `--p7`; P7-15(3) proves the legacy path still runs.
 5. **R6 (separate executor identity):** acknowledged residual, not a test gap — creator and executor are the same OS process by design in this slice. True separate executor identity is a follow-up design, documented in PROPOSAL.md §3/R6, not claimed here.
 
-## F. Full-suite tally (this session, 2026-11-17)
+## F. Full-suite tally (this session, 2026-11-18)
 
-**29/29 PASS** against the REV stage, run in one pass from `tests/`:
+**31/31 PASS** against the REV stage, run in one pass from `tests/`:
 
 ```
 test_p7_00_html_hash: PASS
@@ -95,11 +95,20 @@ test_p7_25_bounded_read: PASS
 test_p7_26_model_input_canary: PASS
 test_p7_27_no_hooks_in_production: PASS
 test_p7_28_kill_switch_scope: PASS
+test_p7_29_record_allowlist: PASS
+test_p7_30_idempotency_mismatch: PASS
 ```
 
 V1 baseline re-run against the v1 code (same session): **18/18 PASS** — no regression in the baseline record.
 
-Diff verification: `patch --fuzz=0 -p1` applies all three rev1 diffs cleanly to fresh api-41 copies; patched files are byte-identical to the work files; `py_compile` passes on all. Regenerating the fixed files from the api-41 bases with `build/apply_server_fixes.py` + `build/apply_runner_fixes.py` produces byte-identical files.
+Diff verification: `patch --fuzz=0 -p1` applies all three rev1 diffs cleanly to fresh api-41 copies; patched files are byte-identical to the work files; `py_compile` passes on all. Regenerating the fixed files with `build/apply_server_fixes.py` (from the DRAFT stage server) + `build/apply_runner_fixes.py` produces byte-identical files.
+
+## H. Claude re-review minors (msg-2ef3cacc, Nov 18) → new tests
+
+| Minor | Test | File | Result |
+|---|---|---|---|
+| M1 record-time allowlist: out-of-allowlist kind refused at append (400 `event_kind_not_in_allowlist`) | P7-29 | `test_p7_29_record_allowlist.py` | `P7-29 record-time allowlist: PASS` (+ goal/plan/action with kind send_money on a claim_job run → 400; goal None → 201; rejected kinds absent from GET events) |
+| M2 idempotency body mismatch: replay with a different body is 409 | P7-30 | `test_p7_30_idempotency_mismatch.py` | `P7-30 idempotency body mismatch: PASS` (+ same-body replay → 200, no token re-issue; mode/allowlist/max_steps variants → 409; original run untouched; fresh live key on a default-policy resident → 403 live_not_enabled) |
 
 ## G. Claude's audit findings (msg-eb3b9012 + msg-031a2cb8) → new tests
 
