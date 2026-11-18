@@ -1,0 +1,667 @@
+--- a/bounded_loop.py
++++ b/bounded_loop.py
+@@ -68,7 +68,10 @@
+ import fcntl
+ import json
+ import os
++import subprocess
+ import sys
++import threading
++import time
+ import urllib.error
+ import urllib.request
+ from datetime import datetime, timezone
+@@ -83,14 +86,20 @@
+     # Priority 6 reasoning engine (same directory). Guarded so the
+     # deterministic path never breaks if reasoning.py is absent.
+     from reasoning import (Reasoner, candidate_lesson_content,
++                           classify_adapter_output,
+                            extract_json_object, fallback_code,
+-                           parse_candidates, veto_key)
++                           parse_candidates,
++                           validate_deliberation,
++                           validate_lesson_sig, veto_key)
+ except ImportError:
+     Reasoner = None
+     candidate_lesson_content = None
++    classify_adapter_output = None
+     extract_json_object = None
+     fallback_code = None
+     parse_candidates = None
++    validate_deliberation = None
++    validate_lesson_sig = None
+     veto_key = None
+ 
+ LIVE_BASE = "https://hearthtown.duckdns.org/game-api"
+@@ -104,6 +113,26 @@
+ # --include-pilot run may see it.
+ PILOT_TAG = "pilot"
+ CLAIM_TIERS = ("T2", "T3")
++# Priority 7 (api-42): server runs + subprocess model. The model
++# subprocess (reasoning_suggest.py, same directory) holds NO
++# credential: it gets a context JSON on stdin and writes a suggestion
++# JSON on stdout. The executor (this file) holds the resident token
++# + the per-run executor token and is the only process that talks to
++# the server. Trace payloads carry ids/hashes/counts only — never job
++# text, memory content, or model prose (canary rule, P7-13).
++P7_SUGGEST_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)),
++                                 "reasoning_suggest.py")
++P7_POLICY_VERSION = "p7-policy-1"  # must match the server's _P7_POLICY_VERSION
++P7_MODEL_TIMEOUT_S = 120
++P7_MODEL_MAX_OUTPUT_BYTES = 65536
++P7_ADAPTER_OUTPUT_UNIT = 4  # chars per adapter output unit (deterministic)
++# A model-proposed goal whose text asks for new capabilities is
++# rejected outright (contract test 7): the model advises only, it
++# can never widen permissions. Structural rule (the action type must
++# be in the run's allowlist) is enforced server-side as well.
++_P7_PERMISSION_GOAL_PATTERNS = ("grant", "permission", "tier", "spend",
++                                "admin", "owner", "token", "elevate")
++
+ # Run lock file (fix 2, shared lock in fix round 2, hardened in
+ # fix round 3, Claude FIX2 B): exclusive flock, never waited on.
+ # This is THE shared claim lock — the NPC runner
+@@ -255,6 +284,98 @@
+         return self._req("POST",
+                          f"/v1/residents/{RESIDENT_ID}/wake/{wake_id}/ack",
+                          {"outcome": outcome, "note": note})
++    # -- Priority 7 runs (api-42) --
++    def _req_run(self, method, path, body=None, exec_token=None):
++        """Run-endpoint calls. Unlike _req, these are allowed even
++        when api.dry_run is True: the run trace is the audit trail,
++        and the SERVER enforces the run's mode (a dry_run run refuses
++        every /action). The executor token, when held, rides the
++        X-Run-Token header; it is never logged (calls record paths
++        only)."""
++        req = urllib.request.Request(self.base + path, method=method)
++        if self.connector:
++            if add_surrogate_to_request is None:
++                raise RuntimeError("dynamic_credentials unavailable")
++            host = urllib.parse.urlparse(self.base).hostname
++            add_surrogate_to_request(req, self.connector,
++                                     allowed_hosts=[host])
++        else:
++            req.add_header("Authorization", "Bearer " + self.token)
++        if exec_token:
++            req.add_header("X-Run-Token", exec_token)
++        if body is not None:
++            req.add_header("Content-Type", "application/json")
++            req.data = json.dumps(body).encode()
++        try:
++            with urllib.request.urlopen(req, timeout=30) as resp:
++                status = resp.status
++                payload = json.loads(resp.read().decode())
++        except urllib.error.HTTPError as e:
++            status = e.code
++            raw = e.read().decode()
++            try:
++                payload = json.loads(raw)
++            except Exception:
++                payload = {"raw": raw[:200]}
++        self.calls.append((method, path, status))
++        return status, payload
++
++    def create_run(self, idempotency_key, mode="dry_run", allowlist=None,
++                   lease_seconds=600, cooldown_ms=0,
++                   policy_version=P7_POLICY_VERSION):
++        body = {"idempotency_key": idempotency_key, "mode": mode,
++                "lease_seconds": lease_seconds, "cooldown_ms": cooldown_ms,
++                "policy_version": policy_version}
++        if allowlist is not None:
++            body["allowlist"] = allowlist
++        return self._req_run("POST",
++                             f"/v1/residents/{RESIDENT_ID}/runs", body)
++
++    def list_runs(self):
++        return self._req_run("GET", f"/v1/residents/{RESIDENT_ID}/runs")
++
++    def get_run(self, run_id):
++        return self._req_run(
++            "GET", f"/v1/residents/{RESIDENT_ID}/runs/{run_id}")
++
++    def append_run_event(self, run_id, event_type, fencing_token,
++                         payload=None, exec_token=None):
++        return self._req_run(
++            "POST",
++            f"/v1/residents/{RESIDENT_ID}/runs/{run_id}/events",
++            {"event_type": event_type, "fencing_token": fencing_token,
++             "payload": payload or {}}, exec_token=exec_token)
++
++    def run_action(self, run_id, action, fencing_token, adapter_output_units=0,
++                   exec_token=None):
++        return self._req_run(
++            "POST",
++            f"/v1/residents/{RESIDENT_ID}/runs/{run_id}/action",
++            {"action": action, "fencing_token": fencing_token,
++             "adapter_output_units": adapter_output_units}, exec_token=exec_token)
++
++    def complete_run(self, run_id, reconciled=False, evidence=None):
++        body = {"reconciled": reconciled}
++        if evidence is not None:
++            body["evidence"] = evidence
++        return self._req_run(
++            "POST",
++            f"/v1/residents/{RESIDENT_ID}/runs/{run_id}/complete", body)
++
++    def block_run(self, run_id, reason_code, evidence=None):
++        body = {"reason_code": reason_code}
++        if evidence is not None:
++            body["evidence"] = evidence
++        return self._req_run(
++            "POST",
++            f"/v1/residents/{RESIDENT_ID}/runs/{run_id}/block", body)
++
++    def expire_run(self, run_id, reason="manual_expire"):
++        return self._req_run(
++            "POST",
++            f"/v1/residents/{RESIDENT_ID}/runs/{run_id}/expire",
++            {"reason": reason})
++
+ 
+ 
+ # ---- planner (pure functions over wake + memory) ----
+@@ -278,6 +399,11 @@
+         sig = extract_json_object(content)
+         if not isinstance(sig, dict):
+             continue
++        # api-42 (P7-11): a lesson sig with any key outside
++        # the structured sets is poisoned — drop it entirely.
++        if validate_lesson_sig is not None and \
++                not validate_lesson_sig(sig):
++            continue
+         if isinstance(sig.get("key"), str) and sig["key"]:
+             out[sig["key"]] = e.get("seq")
+             continue
+@@ -544,8 +670,439 @@
+     return ev
+ 
+ 
++
++def spawn_model_suggestion(context, timeout_s=None):
++    """Run the model in a separate OS process (Priority 7). The child
++    gets a STRICT environment — exactly PATH, HOME, PYTHONPATH — and
++    communicates over stdin/stdout only: a context JSON in, a
++    suggestion JSON out. It holds no board client, no DB handle, and
++    no executor socket.
++    Revision 1 (R1): the fake-model env hooks (JSON / RAW / SLEEP)
++    are GONE from this path. The parent never copies them into the
++    child env, and the production suggest script never reads them.
++    Fake-model behaviour lives only in tests/fake_reasoning_suggest.py
++    (a test-only script driven by a file, never by env), selected by
++    monkeypatching bounded_loop.P7_SUGGEST_SCRIPT in the test.
++    The P7_MODEL_TIMEOUT_S env override is gone too: the timeout is
++    the module constant only.
++    Revision 1 (R2): the child's output is read through a BOUNDED
++    read — at most P7_MODEL_MAX_OUTPUT_BYTES + 1 bytes, in a thread
++    with the timeout; a child that writes more is killed and the
++    result is "oversized". subprocess.run (which buffers the whole
++    output before any size check) is not used.
++    Returns (suggestion_dict_or_None, reason_code_or_None,
++    adapter_output_units, latency_s). reason_code is one of the
++    adapter failure codes (timeout/empty/oversized/non-json) or None
++    on success. adapter_output_units is measured by the executor from
++    the child's output length (len // 4); a model-reported count is
++    never trusted."""
++    if classify_adapter_output is None:
++        raise RuntimeError("reasoning.py could not be imported")
++    if timeout_s is None:
++        timeout_s = P7_MODEL_TIMEOUT_S
++    # Revision 1 (R1): the child env is STRICT — exactly PATH, HOME,
++    # PYTHONPATH. No test hooks are copied in, and no timeout env
++    # override exists: the timeout is the module constant only.
++    env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"),
++           "HOME": os.environ.get("HOME", "/tmp"),
++           "PYTHONPATH": os.path.dirname(os.path.abspath(__file__))}
++    payload = json.dumps(context).encode()
++    t0 = time.time()
++    try:
++        proc = subprocess.Popen(
++            [sys.executable, P7_SUGGEST_SCRIPT],
++            stdin=subprocess.PIPE, stdout=subprocess.PIPE,
++            stderr=subprocess.DEVNULL, env=env)
++    except Exception:
++        return None, "model_error", 0, round(time.time() - t0, 1)
++    try:
++        proc.stdin.write(payload)
++        proc.stdin.close()
++    except (BrokenPipeError, OSError):
++        pass
++    # Revision 1 (R2): bounded read in a thread, so a child that
++    # never writes still hits the timeout. read() returns at most
++    # cap + 1 bytes: one byte over the cap proves the output is
++    # oversized without buffering all of it.
++    box = {}
++
++    def _reader():
++        try:
++            box["data"] = proc.stdout.read(P7_MODEL_MAX_OUTPUT_BYTES + 1)
++        except Exception as exc:  # noqa: BLE001 - record and classify
++            box["error"] = exc
++
++    reader = threading.Thread(target=_reader, daemon=True)
++    reader.start()
++    reader.join(timeout_s)
++    latency = round(time.time() - t0, 1)
++    if reader.is_alive():
++        try:
++            proc.kill()
++        except Exception:
++            pass
++        try:
++            proc.wait(timeout=5)
++        except Exception:
++            pass
++        return None, classify_adapter_output(None, timed_out=True), 0, latency
++    if "error" in box:
++        try:
++            proc.kill()
++        except Exception:
++            pass
++        return None, "model_error", 0, latency
++    out = box.get("data") or b""
++    if len(out) > P7_MODEL_MAX_OUTPUT_BYTES:
++        # The child wrote past the cap: kill it (it may still be
++        # writing) and report oversized without reading further.
++        try:
++            proc.kill()
++        except Exception:
++            pass
++        try:
++            proc.wait(timeout=5)
++        except Exception:
++            pass
++        return None, "oversized", (P7_MODEL_MAX_OUTPUT_BYTES
++                                   // P7_ADAPTER_OUTPUT_UNIT), latency
++    try:
++        proc.wait(timeout=5)
++    except Exception:
++        try:
++            proc.kill()
++        except Exception:
++            pass
++        return None, classify_adapter_output(None, timed_out=True), 0, latency
++    units = len(out) // P7_ADAPTER_OUTPUT_UNIT
++    code = classify_adapter_output(out)
++    if code is not None:
++        return None, code, units, latency
++    try:
++        result = json.loads(out.decode())
++    except (ValueError, UnicodeDecodeError):
++        return None, "non-json", units, latency
++    if not isinstance(result, dict):
++        return None, "non-json", units, latency
++    if result.get("reason_code"):
++        return None, result["reason_code"], units, latency
++    suggestion = result.get("suggestion")
++    if not isinstance(suggestion, dict):
++        return None, "non-json", units, latency
++    return suggestion, None, units, latency
++
++
++def _p7_reason_run(api, run_id, fh, items, entries, lessons, open_jobs,
++                   rec, no_reply, include_pilot, cooled_by_job, pick,
++                   tier, remaining):
++    """Priority 7 run path (api-42, --p7 --reason). The deterministic
++    gates and candidate filter already ran in run_once; this function
++    owns the server run lifecycle:
++      1. refuse to start while an UNKNOWN_OUTCOME run is open
++      2. create the server run (mode live only when the loop is live)
++      3. trace memory_loaded / goal_proposed
++      4. NO_ACTION path when there is no candidate (no model call)
++      5. spawn the model subprocess, validate the suggestion
++      6. reject permission-seeking goals (contract test 7)
++      7. trace plan_*/action_authorized, execute via /action (live)
++         or record the dry-run intent, evaluate, complete
++    The model subprocess holds no credential; the executor (this
++    process) holds the resident token + the per-run executor token.
++    Trace payloads carry ids/hashes/counts only — never job text,
++    memory content, or model prose (canary rule)."""
++    rec["p7"] = True
++    mode = "live" if not api.dry_run else "dry_run"
++    # (1) UNKNOWN_OUTCOME lock: the next wake is blocked until the
++    # stuck run is reconciled by hand. No model call, no claim.
++    s, runs = api.list_runs()
++    if s == 200:
++        for r in runs.get("runs", []):
++            if r.get("status") == "UNKNOWN_OUTCOME":
++                rec["decision"] = "noop"
++                rec["reason"] = ("unknown_outcome_blocked: run "
++                                 + r["id"] + " needs reconciliation")
++                log_line(rec["reason"], fh)
++                return rec
++    # (2) create the run
++    s, run = api.create_run(f"p7-{run_id}", mode=mode,
++                            allowlist=["claim_job"], cooldown_ms=60000,
++                            policy_version=P7_POLICY_VERSION)
++    if s == 409 and run.get("error") in ("lease_already_open",
++                                         "unknown_outcome_blocked",
++                                         "cooldown_active"):
++        rec["decision"] = "noop"
++        rec["reason"] = f"run not started: {run.get('error')}"
++        log_line(rec["reason"], fh)
++        return rec
++    if s not in (200, 201):
++        rec["decision"] = "noop"
++        rec["reason"] = f"run create failed: HTTP {s} {run}"
++        log_line(rec["reason"], fh)
++        return rec
++    run_id_srv = run["id"]
++    fencing = run["fencing_token"]
++    exec_token = run.get("executor_token")  # present on 201 only
++    rec["p7_run"] = {"id": run_id_srv, "mode": mode,
++                     "fencing_token": fencing}
++    if exec_token is None:
++        # Idempotent replay: the token was shown once, at creation.
++        # The run cannot act without it; treat as a blocked run.
++        rec["decision"] = "noop"
++        rec["reason"] = "run replayed without executor token; cannot act"
++        log_line(rec["reason"], fh)
++        return rec
++
++    def _ev(event_type, payload):
++        es, eb = api.append_run_event(run_id_srv, event_type, fencing,
++                                      payload, exec_token=exec_token)
++        if es != 201:
++            log_line(f"run event {event_type} failed: HTTP {es} {eb}", fh)
++        return es, eb
++
++    # (3) memory loaded (seqs + types only — never content)
++    _ev("memory_loaded", {"entries": len(entries),
++                          "seqs": [e.get("seq") for e in entries[-10:]]})
++    # (4) no candidate -> NO_ACTION (no model call, no claim, no spend)
++    if pick is None:
++        _ev("goal_proposed", {"goal": None})
++        _ev("no_action", {"reason": "no_candidates"})
++        cs, cb = api.complete_run(run_id_srv)
++        rec["decision"] = "noop"
++        rec["reason"] = "no matching open job (P7 NO_ACTION)"
++        log_line(f"P7 NO_ACTION run {run_id_srv} completed: HTTP {cs}", fh)
++        return rec
++    jid = pick["id"]
++    _ev("goal_proposed", {"goal": {"ref": jid, "kind": "claim_job"}})
++    # (5) model. In dry-run mode the model adapter is NEVER invoked
++    # (contract dry-run rule, P7-12): the plan is the deterministic
++    # pick, traced as source "deterministic". The model subprocess
++    # runs only in live mode.
++    if mode == "dry_run":
++        source = "deterministic"
++        rec["reasoning"] = {"called": False, "fallback": False,
++                            "reason_code": "", "output_units": 0,
++                            "latency_s": None,
++                            "reason": "dry-run: no model call"}
++        adapter_output_units = 0
++    else:
++        candidates = [j for j in open_jobs
++                      if j.get("id") not in set(cooled_by_job)
++                      and job_matches(j, include_pilot=include_pilot)
++                      and RESIDENT_ID not in (j.get("claimed_by") or [])
++                      and veto_key(j.get("title"), j.get("created_by"))
++                      not in lessons]
++        # Revision 1 (R4): the model gets ids and structure only —
++        # never memory content, job briefs, or wake payloads. Wake
++        # items shrink to wake_id + event_type, memory entries to seq
++        # + type, candidates to id + title (titles are public board
++        # text; briefs are excluded). Lessons are already structured
++        # {key, job_id} pairs.
++        context = {"resident_id": RESIDENT_ID,
++                   "wake": [{"wake_id": it.get("wake_id"),
++                             "event_type": it.get("event_type")}
++                            for it in items],
++                   "memory": [{"seq": e.get("seq"), "type": e.get("type")}
++                              for e in entries],
++                   "candidates": [{"id": j.get("id"),
++                                   "title": j.get("title")}
++                                  for j in candidates],
++                   "lessons": sorted(lessons.values())}
++        suggestion, reason_code, adapter_output_units, latency =             spawn_model_suggestion(context)
++        if reason_code is not None:
++            # Adapter failure: explicit reason code, BLOCKED, never a
++            # claim or an action. The plan_rejected event already
++            # moves the run to BLOCKED (and anchors the chain); the
++            # /block below is a safety net if the append failed.
++            es, _eb = _ev("plan_rejected", {"reason_code": reason_code,
++                                            "adapter_output_units": adapter_output_units})
++            if es != 201:
++                bs, bb = api.block_run(run_id_srv, reason_code)
++                log_line(f"P7 adapter failure {reason_code}; run blocked: "
++                         f"HTTP {bs}", fh)
++            else:
++                log_line(f"P7 adapter failure {reason_code}; run blocked "
++                         f"by plan_rejected", fh)
++            rec["decision"] = "noop"
++            rec["reason"] = f"model adapter failed: {reason_code}"
++            rec["reasoning"] = {"called": True, "fallback": True,
++                                "reason_code": reason_code,
++                                "output_units": adapter_output_units,
++                                "latency_s": latency}
++            return rec
++        rec["reasoning"] = {"called": True, "fallback": False,
++                            "output_units": adapter_output_units, "latency_s": latency}
++        # Validate the suggestion against the ids actually shown. An
++        # invalid suggestion falls back to the deterministic pick (the
++        # Priority 6 contract); only a transport/format failure gets
++        # a reason code.
++        shown_ids = {j.get("id") for j in candidates}
++        shown_wake = {it.get("wake_id") for it in items}
++        shown_seqs = {e.get("seq") for e in entries}
++        errors = validate_deliberation(suggestion, shown_ids, shown_wake,
++                                       shown_seqs)
++        source = "model"
++        if errors:
++            log_line(f"P7 suggestion invalid ({'; '.join(errors)}); "
++                     f"deterministic fallback", fh)
++            rec["reasoning"]["fallback"] = True
++            rec["reasoning"]["fallback_reason"] = "; ".join(errors)
++            source = "deterministic_fallback"
++            suggestion = {"chosen_job_id": jid, "goals": [],
++                          "declined_job_id": None, "decline_reason": ""}
++        # Decline: the model declined the pick; take the next candidate
++        # or NO_ACTION when nothing remains.
++        declined_id = suggestion.get("declined_job_id")
++        chosen_id = suggestion.get("chosen_job_id")
++        if declined_id and not chosen_id and declined_id == jid:
++            rest = [j for j in candidates if j.get("id") != declined_id]
++            if not rest:
++                _ev("no_action", {"reason": "declined_per_reasoning",
++                                  "job_id": declined_id})
++                api.complete_run(run_id_srv)
++                rec["decision"] = "noop"
++                cat = _decline_category(suggestion.get("decline_reason", ""))
++                rec["reason"] = (f"declined per reasoning: "
++                                 f"{suggestion.get('decline_reason', '')}")
++                rec["declined"].append(
++                    {"job_id": declined_id, "title": pick.get("title"),
++                     "lesson_seq": None,
++                     "reason": suggestion.get("decline_reason", ""),
++                     "category": cat})
++                now_iso = datetime.now(timezone.utc).isoformat()
++                outcome = (f"Run {run_id}: no action. Reason: "
++                           f"{_decline_summary(suggestion.get('decline_reason', ''))}. "
++                           f"Wake items: {len(items)}. Lessons consulted: "
++                           f"{rec['lessons_consulted'] or 'none'}. "
++                           f"{_decline_marker(declined_id, cat, now_iso)}. "
++                           f"{_evidence_text(rec.get('reasoning'))}")
++                rec["outcome_seq"] = _append_outcome(api, outcome, fh)
++                return rec
++            jid = rest[0]["id"]
++            pick = rest[0]
++            _ev("goal_proposed", {"goal": {"ref": jid, "kind": "claim_job"}})
++        elif isinstance(chosen_id, str) and chosen_id in shown_ids:
++            jid = chosen_id
++            for j in candidates:
++                if j.get("id") == jid:
++                    pick = j
++                    break
++        # (6) permission-seeking goals are rejected outright.
++        goal_texts = [str(g.get("text") or "")
++                      for g in (suggestion.get("goals") or [])
++                      if isinstance(g, dict)]
++        low = " ".join(goal_texts).lower()
++        if any(p in low for p in _P7_PERMISSION_GOAL_PATTERNS):
++            es, _eb = _ev("plan_rejected",
++                          {"reason_code": "permission_goal"})
++            if es != 201:
++                api.block_run(run_id_srv, "permission_goal")
++            rec["decision"] = "noop"
++            rec["reason"] = "permission-seeking goal rejected"
++            log_line("P7 permission goal rejected; run blocked", fh)
++            return rec
++    _ev("goal_accepted", {"goal": {"ref": jid}})
++    _ev("plan_proposed", {"plan": {"action": {"type": "claim_job",
++                                              "job_id": jid}},
++                          "source": source,
++                          "adapter_output_units": adapter_output_units})
++    _ev("plan_accepted", {"plan": {"action": {"type": "claim_job",
++                                              "job_id": jid}}})
++    _ev("action_authorized", {"action": {"type": "claim_job",
++                                         "job_id": jid}})
++    if mode == "dry_run":
++        _ev("evaluation_recorded", {"dry_run": True, "would_claim": jid})
++        api.complete_run(run_id_srv)
++        rec["decision"] = "claim"
++        rec["action"] = {"kind": "claim", "job_id": jid,
++                         "title": pick.get("title"), "dry_run": True}
++        rec["reason"] = "dry-run: would claim " + jid
++        log_line(f"[dry-run] would claim {jid} '{pick.get('title')}'", fh)
++        sig = json.dumps({"job_id": jid})
++        outcome = (f"claimed {sig} — rule: "
++                   f"{'reasoning' if source == 'model' else 'deterministic'}; "
++                   f"validator: {'ok' if source == 'model' else 'fallback'}; "
++                   f"wake items: {len(items)}. "
++                   f"Lessons consulted: {rec['lessons_consulted'] or 'none'}. "
++                   f"Gate: tier {tier}, remaining {remaining} credits.")
++        outcome += f" {_evidence_text(rec.get('reasoning'))}"
++        rec["outcome_seq"] = _append_outcome(api, outcome, fh)
++        return rec
++    # live: re-validate the job immediately before the claim, then
++    # execute through the run action endpoint (executor token only).
++    vs, vjob = api.get_job(jid)
++    reval_bad = None
++    if vs != 200:
++        reval_bad = f"re-validation: job {jid} fetch failed (HTTP {vs})"
++    elif vjob.get("status") != "open":
++        reval_bad = (f"re-validation: job {jid} is no longer open "
++                     f"(status {vjob.get('status')})")
++    elif vjob.get("claimed_by"):
++        reval_bad = (f"re-validation: job {jid} is already claimed "
++                     f"by {vjob.get('claimed_by')}")
++    elif not job_matches(vjob, include_pilot=include_pilot):
++        reval_bad = f"re-validation: job {jid} no longer matches"
++    if reval_bad:
++        # The job changed between planning and execution: block the
++        # run (the run_blocked event records the reason). No
++        # plan_rejected append: the plan was already authorized.
++        api.block_run(run_id_srv, "action_rejected")
++        rec["decision"] = "noop"
++        rec["reason"] = reval_bad
++        log_line(reval_bad, fh)
++        return rec
++    as_, ab = api.run_action(
++        run_id_srv, {"type": "claim_job", "job_id": jid,
++                     "idempotency_key": f"ember-bounded-{jid}-v1"},
++        fencing, adapter_output_units=adapter_output_units, exec_token=exec_token)
++    log_line(f"run action claim {jid}: HTTP {as_} {str(ab)[:150]}", fh)
++    if as_ != 200:
++        # Revision 1 (S3): the server has already decided the run's
++        # fate. A known refusal leaves the run BLOCKED (not stuck) —
++        # nothing to reconcile, and a new run may start. A truly
++        # unknown outcome leaves it UNKNOWN_OUTCOME, and only
++        # muse/owner may reconcile it — the runner must NOT attempt
++        # a block (its own block would be refused 403). Either way
++        # there is no automatic retry.
++        gs, grun = api.get_run(run_id_srv)
++        state = grun.get("status") if isinstance(grun, dict) else "?"
++        if state == "UNKNOWN_OUTCOME":
++            log_line(f"run action outcome unknown (HTTP {as_}); run "
++                     f"{run_id_srv} is UNKNOWN_OUTCOME, awaiting "
++                     "muse/owner reconcile", fh)
++        elif state == "BLOCKED":
++            log_line(f"run action refused (HTTP {as_}); run "
++                     f"{run_id_srv} is BLOCKED/action_rejected", fh)
++        rec["decision"] = "noop"
++        rec["reason"] = (f"run action failed: HTTP {as_} {ab} "
++                         f"(run {state})")
++        return rec
++    _ev("evaluation_recorded", {"outcome": "executed", "job_id": jid})
++    api.complete_run(run_id_srv)
++    rec["decision"] = "claim"
++    rec["action"] = {"kind": "claim", "job_id": jid,
++                     "title": pick.get("title")}
++    for it in items:
++        if (it.get("event_type") == "job.created"
++                and (it.get("payload_summary") or {}).get("job_id") == jid
++                and not it.get("_acked")):
++            as2, ab2 = api.ack_wake(it["wake_id"], "handled",
++                                    f"claimed {jid}")
++            log_line(f"ack wake {it['wake_id']}: HTTP {as2}", fh)
++            break
++    sig = json.dumps({"job_id": jid})
++    outcome = (f"claimed {sig} — rule: "
++               f"{'reasoning' if source == 'model' else 'deterministic'}; "
++               f"validator: {'ok' if source == 'model' else 'fallback'}; "
++               f"wake items: {len(items)}. "
++               f"Lessons consulted: {rec['lessons_consulted'] or 'none'}. "
++               f"Gate: tier {tier}, remaining {remaining} credits.")
++    outcome += f" {_evidence_text(rec.get('reasoning'))}"
++    rec["outcome_seq"] = _append_outcome(api, outcome, fh)
++    return rec
++
++
+ def run_once(api, run_id, fh=None, no_reply=False, reason=None,
+-             reasoner=None, include_pilot=False):
++             reasoner=None, include_pilot=False, p7=False):
+     """One bounded loop. Returns the decision record.
+ 
+     reason: enable the Priority 6 reasoning engine. None (default)
+@@ -555,7 +1112,10 @@
+     when reason is on and none is given, a default Reasoner is built
+     (Ollama from env).
+     include_pilot: also consider jobs tagged "pilot" (default False
+-    — pilot jobs are invisible to autonomous claimants)."""
++    — pilot jobs are invisible to autonomous claimants).
++    p7: Priority 7 run path (api-42, --p7 --reason): the server
++    run lifecycle + subprocess model instead of the in-process
++    Priority 6 step. Requires reason=True."""
+     if reason is None:
+         reason = os.environ.get("BOUNDED_LOOP_REASON", "") == "1"
+     mode = "live" if not api.dry_run else "dry-run"
+@@ -706,6 +1266,14 @@
+     # never reach the model. The model advises only — it cannot widen
+     # permissions, veto a valid claim, or execute anything.
+     active_reasoner = None
++    if p7 and reason:
++        # Priority 7 (api-42): server run + subprocess model.
++        # Returns the decision record directly; the outcome
++        # memory entry is written inside _p7_reason_run.
++        return _p7_reason_run(api, run_id, fh, items, entries,
++                            lessons, open_jobs, rec, no_reply,
++                            include_pilot, cooled_by_job, pick,
++                            tier, remaining)
+     if reason:
+         if Reasoner is None:
+             raise RuntimeError("reasoning requested but reasoning.py "
+@@ -1017,6 +1585,10 @@
+                     help="enable the Priority 6 reasoning engine "
+                          "(one deliberate model call before the action, "
+                          "one evaluate call after it; default OFF)")
++    ap.add_argument("--p7", action="store_true",
++                    help="Priority 7 run path (api-42): server run "
++                         "record + model in a separate process; "
++                         "requires --reason; default OFF")
+     ap.add_argument("--include-pilot", action="store_true",
+                     help="also consider jobs tagged 'pilot' (default: "
+                          "pilot jobs are invisible to autonomous runs)")
+@@ -1061,9 +1633,13 @@
+         api = Api(base, token=token, connector=connector, dry_run=not live)
+ 
+         with open(log_path, "a") as fh:
++            if args.p7 and not args.reason:
++                print("--p7 requires --reason", file=sys.stderr)
++                return 1
+             rec = run_once(api, run_id, fh=fh, no_reply=args.no_reply,
+                            reason=(args.reason or None),
+-                           include_pilot=args.include_pilot)
++                           include_pilot=args.include_pilot,
++                           p7=args.p7)
+         print(json.dumps(rec, indent=2))
+         return 0 if rec["decision"] in ("claim", "reply", "noop") else 1
+     finally:

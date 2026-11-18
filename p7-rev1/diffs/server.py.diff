@@ -1,0 +1,1729 @@
+--- a/server.py
++++ b/server.py
+@@ -1252,7 +1252,7 @@
+     return result
+ 
+ 
+-# ---- game-api (20261104-game-api-1 + 20261114-game-api-41 city merge v26, additive only) -----------------------
++# ---- game-api (20261104-game-api-1 + 20261114-game-api-41 city merge v26 + 20261114-game-api-42 p7 runs, additive only) -----------------------
+ # api-41 (owner: 'Yes - build + deploy the city', 2026-11-14 ~14:55 ET):
+ #  Merged city game file v26 = Stage 1 (prop-90ce2a29) + Hall collision fix (prop-e1986db7) +
+ #  four resident homes (prop-458c9e43) + QUESTS guard (prop-8b51eab3). All four reviewed +
+@@ -1549,6 +1549,14 @@
+             with open(tmp, "w", encoding="utf-8") as fh:
+                 json.dump(data, fh, indent=2)
+             os.replace(tmp, path)
++        # Revision 1 (S6): reconcile crash remnants from their trace.
++        # Inline write: _game_api_save would deadlock on
++        # _game_api_lock, which this function already holds.
++        if _p7_reconcile_crash_runs(data):
++            tmp = path + ".tmp"
++            with open(tmp, "w", encoding="utf-8") as fh:
++                json.dump(data, fh, indent=2)
++            os.replace(tmp, path)
+         return data
+ 
+ 
+@@ -1931,6 +1939,32 @@
+     if not isinstance(data.get("idempotency"), dict):
+         data["idempotency"] = {}
+         changed = True
++    # api-42 (P7): run records, fencing counters, persisted run
++    # spend, the run kill switch, and run idempotency keys.
++    if not isinstance(data.get("runs"), dict):
++        data["runs"] = {}
++        changed = True
++    if not isinstance(data.get("fencing"), dict):
++        data["fencing"] = {}
++        changed = True
++    if not isinstance(data.get("spend"), dict):
++        data["spend"] = {}
++        changed = True
++    if not isinstance(data.get("run_kill_switch"), dict):
++        data["run_kill_switch"] = {"enabled": False,
++                                   "flipped_at": None,
++                                   "flipped_by": None}
++        changed = True
++    if not isinstance(data.get("run_idempotency"), dict):
++        data["run_idempotency"] = {}
++        changed = True
++    if not isinstance(data.get("run_policy"), dict):
++        # Revision 1 (S5): per-resident run policy, held server-side.
++        # Defaults: 60 s minimum cooldown, live mode OFF, only
++        # claim_job. A resident can never widen its own policy; only
++        # muse/owner may, via POST /v1/residents/{id}/run-policy.
++        data["run_policy"] = {}
++        changed = True
+     if not isinstance(data.get("memory"), dict):
+         # api-34: per-agent memory namespaces (resident_id -> [entries]).
+         data["memory"] = {}
+@@ -2107,6 +2141,72 @@
+     return None
+ 
+ 
++def _econ_claim_job_core(data, agent, job_id, body, digest):
++    """The single claim path, shared by POST /v1/jobs/{id}/claim and
++    the P7 run action endpoint. Returns (http_code, obj); the caller
++    writes the response. Behavior is identical to the pre-api-42
++    claim handler (same checks, same order, same events)."""
++    if not _econ_write_ok(digest):
++        return 429, {"error": "rate limit", "retry_after_seconds": 60}
++    job = _econ_find_job(data, job_id)
++    if job is None:
++        return 404, {"error": "job not found"}
++    # api-28 (f): release expired claims first, so a stale claim
++    # cannot block a fresh one.
++    if _econ_release_expired(data):
++        _game_api_save(data)
++    resident_id = str(body.get("resident_id", "")).strip()
++    idem = body.get("idempotency_key")
++    if not resident_id or not isinstance(idem, str) or not idem:
++        return 400, {"error": "claim requires resident_id and idempotency_key"}
++    idem_scope = "claim:" + job["id"] + ":" + idem
++    prev = data.get("idempotency", {}).get(idem_scope)
++    if prev is not None:
++        if prev.get("resident_id") != resident_id:
++            return 409, {"error": "idempotency_key_reused"}
++        return 200, job
++    if _econ_find_resident(data, resident_id) is None:
++        return 404, {"error": "resident not found"}
++    # api-28 (b): the caller's token must be bound to the resident
++    # it claims as.
++    if not _econ_may_act_as(agent, resident_id, data):
++        return 403, {"error": "token_not_bound_to_resident",
++                     "resident_id": resident_id}
++    # api-35: claiming a job requires T2 (the claiming resident).
++    _tc = _econ_tier_check(data, agent, resident_id, "T2", "claim_job")
++    if _tc is not None:
++        return _tc[0], _tc[1]
++    # api-28 (f): a job whose deadline already passed cannot be
++    # (re-)claimed.
++    _dl = _econ_parse_deadline(job.get("deadline"))
++    if _dl is not None and _dl <= datetime.now(timezone.utc):
++        return 409, {"error": "deadline_passed"}
++    # api-29: the designated approver cannot claim the job it
++    # approves — the approver must differ from the claimer.
++    if job.get("approver") and resident_id == job.get("approver"):
++        return 409, {"error": "approver_cannot_claim",
++                     "detail": "the designated approver cannot claim the job it approves"}
++    if job.get("status") in ("completed", "cancelled"):
++        return 409, {"error": "job is not open for claims"}
++    if resident_id in job.get("claimed_by", []):
++        return 409, {"error": "resident already claimed this job"}
++    if len(job.get("claimed_by", [])) >= job.get("max_claimants", 1):
++        return 409, {"error": "job is fully claimed"}
++    job.setdefault("claimed_by", []).append(resident_id)
++    # api-28 (a): record which token claimed, so complete can refuse
++    # self-completion.
++    job.setdefault("claim_agents", {})[resident_id] = agent
++    if len(job["claimed_by"]) >= job.get("max_claimants", 1):
++        job["status"] = "claimed"
++    job["updated_at"] = _econ_now()
++    data.setdefault("idempotency", {})[idem_scope] = {"resident_id": resident_id}
++    _econ_event(data, "resident:" + resident_id, "job.claimed",
++                {"job_id": job["id"], "resident_id": resident_id,
++                 "agent": agent}, idem)
++    _game_api_save(data)
++    return 200, job
++
++
+ def _econ_find_job(data, jid):
+     for j in data.get("jobs", []):
+         if j.get("id") == jid:
+@@ -4267,9 +4367,61 @@
+                                      "next_since": page[-1].get("id") if page else (since or None),
+                                      "has_more": len(evs) > len(page)})
+                 return
++            if len(rest) == 4 and rest[:2] == ["v1", "residents"] and rest[3] == "runs":
++                _code, _obj = _p7_list_runs(data, agent, rest[2])
++                _json(handler, _code, _obj)
++                return
++            if len(rest) == 5 and rest[:2] == ["v1", "residents"] and rest[3] == "runs":
++                _code, _obj = _p7_get_run(data, agent, rest[2], rest[4])
++                _json(handler, _code, _obj)
++                return
++            if len(rest) == 6 and rest[:2] == ["v1", "residents"] and rest[3] == "runs" and rest[5] == "events":
++                _code, _obj = _p7_list_run_events(data, agent, rest[2], rest[4])
++                _json(handler, _code, _obj)
++                return
++            if len(rest) == 3 and rest[:2] == ["v1", "runs"] and rest[2] == "kill-switch":
++                _code, _obj = _p7_get_kill_switch(data, agent)
++                _json(handler, _code, _obj)
++                return
++            if len(rest) == 4 and rest[:2] == ["v1", "residents"] and rest[3] == "run-policy":
++                _code, _obj = _p7_get_run_policy(data, agent, rest[2])
++                _json(handler, _code, _obj)
++                return
+             _json(handler, 404, {"error": "unknown route"})
+             return
+         if method == "POST":
++            if len(rest) == 4 and rest[:2] == ["v1", "residents"] and rest[3] == "runs":
++                _code, _obj = _p7_create_run(data, agent, digest, rest[2], body, handler)
++                _json(handler, _code, _obj)
++                return
++            if len(rest) == 6 and rest[:2] == ["v1", "residents"] and rest[3] == "runs" and rest[5] == "events":
++                _code, _obj = _p7_append_event(data, agent, digest, rest[2], rest[4], body, handler)
++                _json(handler, _code, _obj)
++                return
++            if len(rest) == 6 and rest[:2] == ["v1", "residents"] and rest[3] == "runs" and rest[5] == "action":
++                _code, _obj = _p7_run_action(data, agent, digest, rest[2], rest[4], body, handler)
++                _json(handler, _code, _obj)
++                return
++            if len(rest) == 6 and rest[:2] == ["v1", "residents"] and rest[3] == "runs" and rest[5] == "complete":
++                _code, _obj = _p7_complete_run(data, agent, rest[2], rest[4], body)
++                _json(handler, _code, _obj)
++                return
++            if len(rest) == 6 and rest[:2] == ["v1", "residents"] and rest[3] == "runs" and rest[5] == "block":
++                _code, _obj = _p7_block_run(data, agent, rest[2], rest[4], body)
++                _json(handler, _code, _obj)
++                return
++            if len(rest) == 6 and rest[:2] == ["v1", "residents"] and rest[3] == "runs" and rest[5] == "expire":
++                _code, _obj = _p7_expire_run(data, agent, rest[2], rest[4], body)
++                _json(handler, _code, _obj)
++                return
++            if len(rest) == 3 and rest[:2] == ["v1", "runs"] and rest[2] == "kill-switch":
++                _code, _obj = _p7_set_kill_switch(data, agent, body)
++                _json(handler, _code, _obj)
++                return
++            if len(rest) == 4 and rest[:2] == ["v1", "residents"] and rest[3] == "run-policy":
++                _code, _obj = _p7_set_run_policy(data, agent, rest[2], body)
++                _json(handler, _code, _obj)
++                return
+             if rest == ["v1", "proposals"]:
+                 author = str(body.get("author", "")).strip()
+                 title = str(body.get("title", "")).strip()
+@@ -4683,78 +4835,10 @@
+                 _json(handler, 201, job)
+                 return
+             if len(rest) == 4 and rest[:2] == ["v1", "jobs"] and rest[3] == "claim":
+-                if not _econ_write_ok(digest):
+-                    _json(handler, 429, {"error": "rate limit", "retry_after_seconds": 60})
+-                    return
+-                job = _econ_find_job(data, rest[2])
+-                if job is None:
+-                    _json(handler, 404, {"error": "job not found"})
+-                    return
+-                # api-28 (f): release expired claims first, so a stale
+-                # claim cannot block a fresh one.
+-                if _econ_release_expired(data):
+-                    _game_api_save(data)
+-                resident_id = str(body.get("resident_id", "")).strip()
+-                idem = body.get("idempotency_key")
+-                if not resident_id or not isinstance(idem, str) or not idem:
+-                    _json(handler, 400, {"error": "claim requires resident_id and idempotency_key"})
+-                    return
+-                idem_scope = "claim:" + job["id"] + ":" + idem
+-                prev = data.get("idempotency", {}).get(idem_scope)
+-                if prev is not None:
+-                    if prev.get("resident_id") != resident_id:
+-                        _json(handler, 409, {"error": "idempotency_key_reused"})
+-                        return
+-                    _json(handler, 200, job)
+-                    return
+-                if _econ_find_resident(data, resident_id) is None:
+-                    _json(handler, 404, {"error": "resident not found"})
+-                    return
+-                # api-28 (b): the caller's token must be bound to the
+-                # resident it claims as.
+-                if not _econ_may_act_as(agent, resident_id, data):
+-                    _json(handler, 403, {"error": "token_not_bound_to_resident",
+-                                         "resident_id": resident_id})
+-                    return
+-                # api-35: claiming a job requires T2 (the claiming resident).
+-                _tc = _econ_tier_check(data, agent, resident_id, "T2", "claim_job")
+-                if _tc is not None:
+-                    _json(handler, _tc[0], _tc[1])
+-                    return
+-                # api-28 (f): a job whose deadline already passed cannot
+-                # be (re-)claimed.
+-                _dl = _econ_parse_deadline(job.get("deadline"))
+-                if _dl is not None and _dl <= datetime.now(timezone.utc):
+-                    _json(handler, 409, {"error": "deadline_passed"})
+-                    return
+-                # api-29: the designated approver cannot claim the job
+-                # it approves — the approver must differ from the claimer.
+-                if job.get("approver") and resident_id == job.get("approver"):
+-                    _json(handler, 409, {"error": "approver_cannot_claim",
+-                                         "detail": "the designated approver cannot claim the job it approves"})
+-                    return
+-                if job.get("status") in ("completed", "cancelled"):
+-                    _json(handler, 409, {"error": "job is not open for claims"})
+-                    return
+-                if resident_id in job.get("claimed_by", []):
+-                    _json(handler, 409, {"error": "resident already claimed this job"})
+-                    return
+-                if len(job.get("claimed_by", [])) >= job.get("max_claimants", 1):
+-                    _json(handler, 409, {"error": "job is fully claimed"})
+-                    return
+-                job.setdefault("claimed_by", []).append(resident_id)
+-                # api-28 (a): record which token claimed, so complete can
+-                # refuse self-completion.
+-                job.setdefault("claim_agents", {})[resident_id] = agent
+-                if len(job["claimed_by"]) >= job.get("max_claimants", 1):
+-                    job["status"] = "claimed"
+-                job["updated_at"] = _econ_now()
+-                data.setdefault("idempotency", {})[idem_scope] = {"resident_id": resident_id}
+-                _econ_event(data, "resident:" + resident_id, "job.claimed",
+-                            {"job_id": job["id"], "resident_id": resident_id,
+-                             "agent": agent}, idem)
+-                _game_api_save(data)
+-                _json(handler, 200, job)
++                # api-42: the claim path is shared with the P7 run
++                # action endpoint (see _econ_claim_job_core).
++                _code, _obj = _econ_claim_job_core(data, agent, rest[2], body, digest)
++                _json(handler, _code, _obj)
+                 return
+             if len(rest) == 4 and rest[:2] == ["v1", "jobs"] and rest[3] == "complete":
+                 if not _econ_write_ok(digest):
+@@ -5100,7 +5184,1377 @@
+ 
+ 
+ 
+-# ---- game-api MCP + OpenAPI (20261114-game-api-41, additive only) --------
++# ---- game-api Priority 7 runs (20261114-game-api-42, additive only) --------
++# Priority 7 (formal proposal; revised contract msg-924d7cb2, adopted
++# msg-c6c2e7a0): the server-side BRAIN interface. A reasoning resident
++# (Ember first) works through a RUN record: the model runs in a separate
++# OS process with NO credential, and the executor (the resident's agent
++# process) holds the only per-run allowlist-scoped token, minted by the
++# server. Every step is written to a per-resident append-only trace
++# (hash-chained SQLite, one file per resident) and the chain head is
++# anchored into the public event log at completion/block/expire, so the
++# trace is tamper-evident outside the runner's write authority.
++# Reasoning stays OFF until the owner approves a live run; this slice
++# adds the interface + tests only. No finance rails, no game HTML
++# changes, no MCP tools added (41 tools, unchanged).
++import secrets as _p7_secrets
++
++_P7_VERSION = "20261114-game-api-42"
++_P7_RUN_STATES = ("IDLE", "LEASED", "CONTEXT_LOADED", "GOAL_SELECTED",
++                  "PLAN_VALIDATED", "ACTION_AUTHORIZED", "ACTION_STARTED",
++                  "ACTION_EXECUTED", "EVALUATED", "MEMORY_APPENDED",
++                  "NO_ACTION", "UNKNOWN_OUTCOME", "COMPLETE", "BLOCKED",
++                  "EXPIRED")
++_P7_TERMINAL_STATES = {"COMPLETE", "BLOCKED", "EXPIRED"}
++# Trace events the executor may append via POST .../events (the
++# planning-phase events). action_started / action_result are written
++# by the server inside POST .../action only; run_completed /
++# run_blocked / run_expired are written by their own endpoints only.
++_P7_RUN_EVENT_TYPES = ("run_created", "lease_claimed", "memory_loaded",
++    "goal_proposed", "goal_accepted", "no_action", "plan_proposed",
++    "plan_rejected", "plan_accepted", "action_authorized", "action_started",
++    "action_result", "evaluation_recorded", "lesson_appended",
++    "run_completed", "run_blocked", "run_expired", "run_kill_switch")
++_P7_CLIENT_EVENT_TYPES = ("lease_claimed", "memory_loaded",
++    "goal_proposed", "goal_accepted", "no_action", "plan_proposed",
++    "plan_rejected", "plan_accepted", "action_authorized",
++    "evaluation_recorded", "lesson_appended")
++_P7_EVENT_TO_STATE = {
++    "run_created": "LEASED",
++    "lease_claimed": "LEASED",
++    "memory_loaded": "CONTEXT_LOADED",
++    "goal_proposed": "GOAL_SELECTED",
++    "goal_accepted": "GOAL_SELECTED",
++    "no_action": "NO_ACTION",
++    "plan_proposed": "PLAN_VALIDATED",
++    "plan_rejected": "BLOCKED",
++    "plan_accepted": "PLAN_VALIDATED",
++    "action_authorized": "ACTION_AUTHORIZED",
++    "action_started": "ACTION_STARTED",
++    "action_result": "ACTION_EXECUTED",
++    "evaluation_recorded": "EVALUATED",
++    "lesson_appended": "MEMORY_APPENDED",
++    "run_completed": "COMPLETE",
++    "run_blocked": "BLOCKED",
++    "run_expired": "EXPIRED",
++}
++_P7_ALLOWED_TRANSITIONS = {
++    "IDLE": {"run_created"},
++    "LEASED": {"lease_claimed", "memory_loaded"},
++    "CONTEXT_LOADED": {"goal_proposed"},
++    "GOAL_SELECTED": {"goal_accepted", "no_action", "plan_proposed",
++                      "plan_rejected"},
++    "PLAN_VALIDATED": {"plan_accepted", "plan_rejected", "action_authorized"},
++    "ACTION_AUTHORIZED": {"action_started", "evaluation_recorded"},
++    "ACTION_STARTED": {"action_result"},
++    "ACTION_EXECUTED": {"evaluation_recorded"},
++    "EVALUATED": {"lesson_appended", "run_completed"},
++    "MEMORY_APPENDED": {"run_completed"},
++    "NO_ACTION": {"run_completed"},
++    "UNKNOWN_OUTCOME": {"run_completed", "run_blocked"},
++}
++# Adapter failure reason codes (shared with reasoning.py):
++# timeout / empty / oversized / non-json, plus run-level reasons.
++_P7_REASON_CODES = ("timeout", "empty", "oversized", "non-json",
++    "model_error", "action_rejected", "permission_goal",
++    "unknown_outcome", "plan_rejected", "manual", "lease_expired")
++_P7_ACTION_TYPES = ("claim_job", "noop")
++_P7_MAX_LEASE_SECONDS = 3600
++_P7_DEFAULT_LEASE_SECONDS = 600
++_P7_DEFAULT_DAILY_ACTIONS = 100
++_P7_DEFAULT_DAILY_OUTPUT_UNITS = 10000
++_P7_MAX_EVENT_PAYLOAD_BYTES = 65536
++# Revision 1 (Claude audit S4/S5): the run policy. policy_version is
++# required on every run creation and must equal _P7_POLICY_VERSION;
++# max_steps / max_wall_ms / max_model_tokens are validated and stored
++# on the run record. The per-resident policy lives server-side in
++# game_api.json ("run_policy"); a request may only narrow it.
++_P7_POLICY_VERSION = "p7-policy-1"
++_P7_POLICY_DEFAULTS = {"min_cooldown_ms": 60000, "live_enabled": False,
++                       "allowlist": ["claim_job"]}
++_P7_MAX_STEPS = 50
++_P7_MAX_WALL_MS = 900000
++_P7_MAX_MODEL_TOKENS = 4000
++_P7_DEFAULT_MAX_STEPS = 10
++_P7_DEFAULT_MAX_WALL_MS = 300000
++_P7_DEFAULT_MAX_MODEL_TOKENS = 2000
++
++
++import re as _p7_re
++
++_P7_ID_RE = _p7_re.compile(r"^[A-Za-z0-9_:\-./]{1,128}$")
++
++
++def _p7_is_id(value):
++    return isinstance(value, str) and bool(_P7_ID_RE.match(value))
++
++
++# Revision 1 (Claude audit S7): the only payload shapes the server
++# accepts on POST .../events. Anything else — an unknown key, free
++# text, an oversized int — is 400 event_payload_invalid. This is what
++# makes "structured lessons only" and the canary rule real at the
++# server boundary instead of a client convention.
++_P7_EVENT_SCHEMAS = {
++    "lease_claimed": {"fencing_token": "int"},
++    "memory_loaded": {"entries": "int", "seqs": ["int"]},
++    "goal_proposed": {"goal": {"ref": "id", "kind": "id"}},
++    "goal_accepted": {"goal": {"ref": "id"}},
++    "no_action": {"reason": "id", "job_id": "id"},
++    "plan_proposed": {"plan": {"action": {"type": "id", "job_id": "id"}},
++                      "source": "id", "adapter_output_units": "int"},
++    "plan_rejected": {"reason_code": "id", "adapter_output_units": "int"},
++    "plan_accepted": {"plan": {"action": {"type": "id", "job_id": "id"}}},
++    "action_authorized": {"action": {"type": "id", "job_id": "id"}},
++    "evaluation_recorded": {"dry_run": "bool", "would_claim": "id",
++                            "outcome": "id", "job_id": "id",
++                            "action_result_event_id": "id",
++                            "adapter_output_units": "int"},
++    "lesson_appended": {"lesson_key": "id", "job_id": "id", "seq": "int"},
++}
++
++
++def _p7_validate_event_payload(event_type, payload):
++    """Validate a client event payload against its schema.
++    Returns (ok, error_detail)."""
++    schema = _P7_EVENT_SCHEMAS.get(event_type)
++    if schema is None:
++        return False, "no schema for event type " + event_type
++    if not isinstance(payload, dict):
++        return False, "payload must be an object"
++    for key in payload:
++        if key not in schema:
++            return False, "unknown payload key " + key
++    for key, kind in schema.items():
++        if key not in payload:
++            continue
++        value = payload[key]
++        if kind == "int":
++            if not isinstance(value, int) or isinstance(value, bool) \
++                    or value < 0 or value > 10 ** 9:
++                return False, "payload key " + key + " must be an int 0..1e9"
++        elif kind == "bool":
++            if not isinstance(value, bool):
++                return False, "payload key " + key + " must be a boolean"
++        elif kind == "id":
++            if not _p7_is_id(value):
++                return False, ("payload key " + key + " must be an id "
++                               "(1..128 chars, no free text)")
++        elif isinstance(kind, list) and kind == ["int"]:
++            if (not isinstance(value, list) or len(value) > 100
++                    or not all(isinstance(v, int)
++                               and not isinstance(v, bool) for v in value)):
++                return False, ("payload key " + key + " must be a list of "
++                               "at most 100 ints")
++        elif isinstance(kind, dict):
++            # Nested object (goal / plan / action). "goal" may be None
++            # (no candidate); otherwise only the schema's keys, each
++            # validated the same way.
++            if value is None and key == "goal":
++                continue
++            if not isinstance(value, dict):
++                return False, "payload key " + key + " must be an object"
++            for sub in value:
++                if sub not in kind:
++                    return False, ("unknown payload key " + key + "." + sub)
++            for sub, subkind in kind.items():
++                if sub not in value:
++                    continue
++                subvalue = value[sub]
++                if subkind == "id":
++                    if not _p7_is_id(subvalue):
++                        return False, ("payload key " + key + "." + sub
++                                       + " must be an id")
++                elif subkind == "int":
++                    if (not isinstance(subvalue, int)
++                            or isinstance(subvalue, bool)):
++                        return False, ("payload key " + key + "." + sub
++                                       + " must be an int")
++                elif isinstance(subkind, dict):
++                    if not isinstance(subvalue, dict):
++                        return False, ("payload key " + key + "." + sub
++                                       + " must be an object")
++                    for deep in subvalue:
++                        if deep not in subkind:
++                            return False, ("unknown payload key " + key
++                                           + "." + sub + "." + deep)
++                    for deep, deepkind in subkind.items():
++                        if deep not in subvalue:
++                            continue
++                        if deepkind == "id" and not _p7_is_id(
++                                subvalue[deep]):
++                            return False, ("payload key " + key + "." + sub
++                                           + "." + deep + " must be an id")
++    return True, None
++
++
++class _P7AppendOnlyViolation(Exception):
++    pass
++
++
++class _P7RunStore:
++    """One per-resident append-only trace store. The instance is bound
++    to exactly one resident_id at construction (from the server's lease,
++    never from a caller-supplied value) and refuses every cross-resident
++    operation. Events are hash-chained; UPDATE/DELETE are refused by
++    SQLite triggers (append-only at the DB level, not just by
++    convention). The chain head is anchored into the public event log
++    by the server on EVERY append (rev 1; v1 anchored only at terminal
++    states), so tampering is detectable outside this file's write
++    authority. The hash is a plain sha256 with no key and the anchor
++    lives in game_api.json, same process and same user as the runner:
++    this detects tampering by outsiders, NOT by the runner/server host
++    account. (Claude audit S8.)"""
++
++    def __init__(self, resident_id):
++        if not isinstance(resident_id, str) or not _ECON_RESIDENT_ID_RE.match(resident_id):
++            raise ValueError("bad resident_id for run store")
++        self.resident_id = resident_id
++        base = os.path.dirname(os.path.abspath(__file__))
++        self.path = os.path.join(base, "runs_%s.db" % resident_id)
++        self._conn = sqlite3.connect(self.path, check_same_thread=False)
++        self._conn.execute("PRAGMA journal_mode=WAL")
++        self._conn.execute(
++            "CREATE TABLE IF NOT EXISTS run_events ("
++            " seq INTEGER PRIMARY KEY AUTOINCREMENT,"
++            " run_id TEXT NOT NULL, event_id TEXT UNIQUE NOT NULL,"
++            " event_type TEXT NOT NULL, payload_json TEXT NOT NULL,"
++            " prev_hash TEXT NOT NULL, hash TEXT NOT NULL, ts TEXT NOT NULL)")
++        self._conn.execute(
++            "CREATE TABLE IF NOT EXISTS run_anchors ("
++            " run_id TEXT PRIMARY KEY, head_hash TEXT NOT NULL,"
++            " public_event_id TEXT NOT NULL, ts TEXT NOT NULL)")
++        self._conn.execute(
++            "CREATE TRIGGER IF NOT EXISTS p7_no_update_run_events"
++            " BEFORE UPDATE ON run_events BEGIN"
++            " SELECT RAISE(ABORT, 'run_events append-only'); END")
++        self._conn.execute(
++            "CREATE TRIGGER IF NOT EXISTS p7_no_delete_run_events"
++            " BEFORE DELETE ON run_events BEGIN"
++            " SELECT RAISE(ABORT, 'run_events append-only'); END")
++        self._conn.commit()
++
++    def close(self):
++        try:
++            self._conn.close()
++        except Exception:
++            pass
++
++    def _head(self, run_id):
++        row = self._conn.execute(
++            "SELECT hash FROM run_events WHERE run_id = ?"
++            " ORDER BY seq DESC LIMIT 1", (run_id,)).fetchone()
++        return row[0] if row else "GENESIS"
++
++    def append(self, run_id, event_type, payload):
++        if not isinstance(run_id, str) or not run_id:
++            raise ValueError("run_id required")
++        if event_type not in _P7_RUN_EVENT_TYPES:
++            raise ValueError("unknown run event type: %s" % event_type)
++        if not isinstance(payload, dict):
++            raise ValueError("event payload must be an object")
++        payload = dict(payload)
++        if payload.get("resident_id") not in (None, self.resident_id):
++            raise _P7AppendOnlyViolation(
++                "event resident_id does not match this store")
++        payload["resident_id"] = self.resident_id
++        blob = json.dumps(payload, sort_keys=True, separators=(",", ":"))
++        if len(blob.encode("utf-8")) > _P7_MAX_EVENT_PAYLOAD_BYTES:
++            raise ValueError("event payload too large")
++        ts = _econ_now()
++        prev = self._head(run_id)
++        event_id = "revt-" + _game_uuid.uuid4().hex[:12]
++        h = hashlib.sha256(
++            (prev + "|" + run_id + "|" + event_type + "|" + blob + "|" + ts
++             ).encode("utf-8")).hexdigest()
++        self._conn.execute(
++            "INSERT INTO run_events (run_id, event_id, event_type,"
++            " payload_json, prev_hash, hash, ts) VALUES (?,?,?,?,?,?,?)",
++            (run_id, event_id, event_type, blob, prev, h, ts))
++        self._conn.commit()
++        return {"event_id": event_id, "run_id": run_id,
++                "event_type": event_type, "resident_id": self.resident_id,
++                "prev_hash": prev, "hash": h, "ts": ts,
++                "payload": payload}
++
++    def list_events(self, run_id):
++        rows = self._conn.execute(
++            "SELECT event_id, event_type, payload_json, prev_hash, hash, ts"
++            " FROM run_events WHERE run_id = ? ORDER BY seq ASC",
++            (run_id,)).fetchall()
++        return [{"event_id": r[0], "event_type": r[1],
++                 "payload": json.loads(r[2]), "prev_hash": r[3],
++                 "hash": r[4], "ts": r[5]} for r in rows]
++
++    def verify(self, run_id):
++        """Recompute the chain. Returns (ok, head_hash, count)."""
++        rows = self._conn.execute(
++            "SELECT event_type, payload_json, prev_hash, hash, ts"
++            " FROM run_events WHERE run_id = ? ORDER BY seq ASC",
++            (run_id,)).fetchall()
++        prev = "GENESIS"
++        for et, blob, ph, h, ts in rows:
++            if ph != prev:
++                return False, prev, len(rows)
++            expect = hashlib.sha256(
++                (prev + "|" + run_id + "|" + et + "|" + blob + "|" + ts
++                 ).encode("utf-8")).hexdigest()
++            if expect != h:
++                return False, prev, len(rows)
++            prev = h
++        return True, prev, len(rows)
++
++    def anchor(self, run_id, public_event_id):
++        ok, head, _n = self.verify(run_id)
++        if not ok:
++            raise _P7AppendOnlyViolation("cannot anchor a broken chain")
++        self._conn.execute(
++            "INSERT OR REPLACE INTO run_anchors (run_id, head_hash,"
++            " public_event_id, ts) VALUES (?,?,?,?)",
++            (run_id, head, public_event_id, _econ_now()))
++        self._conn.commit()
++        return {"run_id": run_id, "head_hash": head,
++                "public_event_id": public_event_id}
++
++
++def _p7_now():
++    return datetime.now(timezone.utc)
++
++
++def _p7_run_view(run):
++    """Public run shape. The executor token hash is never returned."""
++    return {k: v for k, v in run.items() if k != "executor_token_sha256"}
++
++
++def _p7_kill_switch_on(data):
++    ks = data.get("run_kill_switch") or {}
++    return bool(ks.get("enabled"))
++
++
++def _p7_spend(data, resident_id):
++    """Persisted per-resident run spend + cooldown, reset at UTC
++    midnight. The counters live in game_api.json so they survive a
++    process restart (unlike in-memory counters). last_action_at is
++    kept across midnight: a cooldown must survive the date change."""
++    spend = data.setdefault("spend", {})
++    # Revision 1 (R5): tokens_today is renamed output_units_today —
++    # the daily ledger counts adapter output units (len // 4), not
++    # measured model tokens. Old records are migrated on read.
++    entry = spend.setdefault(resident_id, {
++        "date": _econ_today_str(), "actions_today": 0,
++        "output_units_today": 0, "last_action_at": None, "runs_today": 0})
++    if "tokens_today" in entry:
++        entry["output_units_today"] = int(entry.pop("tokens_today") or 0)
++    if entry.get("date") != _econ_today_str():
++        entry.update({"date": _econ_today_str(), "actions_today": 0,
++                      "output_units_today": 0, "runs_today": 0})
++    return entry
++
++
++def _p7_find_run(data, resident_id, run_id):
++    run = data.get("runs", {}).get(run_id)
++    if run is None or run.get("resident_id") != resident_id:
++        return None
++    return run
++
++
++def _p7_mint_executor_token():
++    plain = _p7_secrets.token_urlsafe(32)
++    return plain, hashlib.sha256(plain.encode("utf-8")).hexdigest()
++
++
++def _p7_executor_auth(data, run, handler):
++    """Authenticate the per-run executor token (X-Run-Token header).
++    Returns (agent, error_obj) — error_obj None on success. The token
++    is compared by sha256 only; the plain value is never stored or
++    logged, and is returned to the executor exactly once, at run
++    creation. A replay of the creation idempotency key does NOT
++    re-issue the token."""
++    token = (handler.headers.get("X-Run-Token") or "").strip()
++    if not token:
++        return None, {"error": "executor_token_required"}
++    if run is None:
++        return None, {"error": "run not found"}
++    digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
++    if not _game_hmac.compare_digest(
++            digest, str(run.get("executor_token_sha256") or "")):
++        return None, {"error": "executor_token_invalid"}
++    return "executor:" + run["resident_id"], None
++
++
++def _p7_transition_allowed(run, event_type):
++    status = run.get("status")
++    if status in _P7_TERMINAL_STATES:
++        return False
++    if event_type in ("run_blocked", "run_expired", "run_kill_switch"):
++        return True
++    if event_type == "run_completed":
++        return status in ("MEMORY_APPENDED", "EVALUATED", "NO_ACTION",
++                          "UNKNOWN_OUTCOME")
++    return event_type in _P7_ALLOWED_TRANSITIONS.get(status, set())
++
++
++def _p7_lease_expired(run):
++    try:
++        exp = datetime.fromisoformat(run.get("lease_expires_at", ""))
++    except ValueError:
++        return True
++    return _p7_now() >= exp
++
++
++def _p7_anchor_chain_head(data, run):
++    """Anchor the run trace's chain head into the public event log
++    (hash only, never content). The public log is outside the runner's
++    write authority, so a tampered trace is detectable by comparing
++    the recomputed head against the anchored value."""
++    store = _P7RunStore(run["resident_id"])
++    try:
++        ok, head, count = store.verify(run["id"])
++        if not ok:
++            return None
++        ev = _econ_event(data, "resident:" + run["resident_id"],
++                         "run.chain_anchored",
++                         {"run_id": run["id"],
++                          "resident_id": run["resident_id"],
++                          "head_hash": head, "events": count}, None)
++        store.anchor(run["id"], ev["id"])
++        return {"head_hash": head, "public_event_id": ev["id"],
++                "events": count}
++    finally:
++        store.close()
++
++
++def _p7_maybe_expire(data, run):
++    """Lazy expiry: a non-terminal run whose lease passed is expired
++    on first sight, with a trace event + public event + chain anchor.
++    Returns True if the run was expired here. Callers save after.
++    Revision 1 (S2): UNKNOWN_OUTCOME never lazily expires. The lock
++    evaporating on its own was a bypass: only a muse/owner reconcile
++    (complete / block / expire) releases a stuck run."""
++    if run.get("status") in _P7_TERMINAL_STATES:
++        return False
++    if run.get("status") == "UNKNOWN_OUTCOME":
++        return False
++    if not _p7_lease_expired(run):
++        return False
++    store = _P7RunStore(run["resident_id"])
++    try:
++        store.append(run["id"], "run_expired",
++                     {"reason": "lease_expired"})
++    finally:
++        store.close()
++    run["status"] = "EXPIRED"
++    run["updated_at"] = _econ_now()
++    _p7_anchor_chain_head(data, run)
++    _econ_event(data, "resident:" + run["resident_id"], "run.expired",
++                {"run_id": run["id"], "resident_id": run["resident_id"],
++                 "reason": "lease_expired"}, None)
++    return True
++
++def _p7_policy(data, resident_id):
++    """The resident's run policy (S5). Server-held; defaults are the
++    least privilege the P7 contract needs. Missing keys are filled
++    from the defaults so older records stay valid."""
++    policies = data.get("run_policy")
++    if not isinstance(policies, dict):
++        policies = {}
++    raw = policies.get(resident_id)
++    merged = dict(_P7_POLICY_DEFAULTS)
++    if isinstance(raw, dict):
++        for key in merged:
++            if key in raw:
++                merged[key] = raw[key]
++    return merged
++
++
++def _p7_reconcile_evidence(data, resident_id, run, evidence):
++    """Validate reconcile evidence for an UNKNOWN_OUTCOME run (S1).
++    The evidence must name the trace event the human is reconciling:
++    action_result_event_id (the action_result event) or, when the run
++    has no action_result event (crash before the result),
++    action_started_event_id. The referenced event must exist in the
++    run's trace with the matching type. An optional outcome field must
++    be 'committed' or 'not_committed'. Returns (ok, error_detail)."""
++    if not isinstance(evidence, dict):
++        return False, "evidence must be an object"
++    if "action_result_event_id" in evidence:
++        ref_id = evidence.get("action_result_event_id")
++        want_type = "action_result"
++    elif "action_started_event_id" in evidence:
++        ref_id = evidence.get("action_started_event_id")
++        want_type = "action_started"
++    else:
++        return False, ("evidence must name action_result_event_id or "
++                       "action_started_event_id")
++    if not isinstance(ref_id, str) or not ref_id:
++        return False, "the named event id must be a non-empty string"
++    store = _P7RunStore(resident_id)
++    try:
++        events = store.list_events(run["id"])
++    finally:
++        store.close()
++    for ev in events:
++        if ev.get("event_id") == ref_id:
++            if ev.get("event_type") != want_type:
++                return False, ("referenced event is "
++                               + str(ev.get("event_type"))
++                               + ", not " + want_type)
++            break
++    else:
++        return False, "referenced event not found in the run trace"
++    outcome = evidence.get("outcome")
++    if outcome is not None and outcome not in ("committed",
++                                               "not_committed"):
++        return False, "outcome must be committed or not_committed"
++    return True, None
++
++
++def _p7_reconcile_crash_runs(data):
++    """Startup reconcile (S6). A run whose persisted status is
++    ACTION_AUTHORIZED or ACTION_STARTED can only be a crash remnant:
++    in the live flow the intent record (action_started + adapter
++    charge + save) and the result are written inside one request, so
++    no run legitimately rests in those states across requests. The
++    trace (SQLite, committed per append) is the source of truth: an
++    action_result whose outcome the persisted status does not reflect
++    is honoured; action_started without action_result means the claim
++    may or may not have committed -> UNKNOWN_OUTCOME. Returns True if
++    any run changed (the caller persists). Only runs in the
++    crash-window states open a store, so a normal load costs one
++    dict scan."""
++    changed = False
++    for run in list(data.get("runs", {}).values()):
++        if run.get("status") not in ("ACTION_AUTHORIZED",
++                                     "ACTION_STARTED"):
++            continue
++        resident_id = run.get("resident_id")
++        try:
++            store = _P7RunStore(resident_id)
++            try:
++                events = store.list_events(run["id"])
++            finally:
++                store.close()
++        except Exception:
++            continue
++        started = [e for e in events
++                   if e.get("event_type") == "action_started"]
++        if not started:
++            continue
++        results = [e for e in events
++                   if e.get("event_type") == "action_result"]
++        if results:
++            payload = results[-1].get("payload") or {}
++            if payload.get("committed"):
++                run["status"] = "ACTION_EXECUTED"
++            else:
++                run["status"] = "BLOCKED"
++                run["reason_code"] = "action_rejected"
++            run["updated_at"] = _econ_now()
++            changed = True
++        else:
++            run["status"] = "UNKNOWN_OUTCOME"
++            run["reason_code"] = "unknown_outcome"
++            run["updated_at"] = _econ_now()
++            changed = True
++    return changed
++
++
++def _p7_get_run_policy(data, agent, resident_id):
++    if agent not in ("muse", "owner"):
++        return 403, {"error": "admin_only"}
++    if _econ_find_resident(data, resident_id) is None:
++        return 404, {"error": "resident not found"}
++    return 200, {"resident_id": resident_id,
++                 "policy": _p7_policy(data, resident_id),
++                 "policy_version": _P7_POLICY_VERSION}
++
++
++def _p7_set_run_policy(data, agent, resident_id, body):
++    """Muse/owner only. Adjusts the resident's run policy (S5). The
++    policy is the ceiling: a run request may only narrow it."""
++    if agent not in ("muse", "owner"):
++        return 403, {"error": "admin_only"}
++    if _econ_find_resident(data, resident_id) is None:
++        return 404, {"error": "resident not found"}
++    policy = _p7_policy(data, resident_id)
++    if "min_cooldown_ms" in body:
++        value = body["min_cooldown_ms"]
++        if (not isinstance(value, int) or isinstance(value, bool)
++                or value < 0 or value > 3600000):
++            return 400, {"error": "min_cooldown_ms must be an int 0..3600000"}
++        policy["min_cooldown_ms"] = value
++    if "live_enabled" in body:
++        value = body["live_enabled"]
++        if not isinstance(value, bool):
++            return 400, {"error": "live_enabled must be a boolean"}
++        policy["live_enabled"] = value
++    if "allowlist" in body:
++        value = body["allowlist"]
++        if (not isinstance(value, list) or not value
++                or not all(isinstance(a, str) and a in _P7_ACTION_TYPES
++                           for a in value)):
++            return 400, {"error": "allowlist must list action types from "
++                         + ", ".join(_P7_ACTION_TYPES)}
++        policy["allowlist"] = list(value)
++    data.setdefault("run_policy", {})[resident_id] = policy
++    _econ_event(data, "agent:" + agent, "run.policy",
++                {"resident_id": resident_id, "policy": policy}, None)
++    _game_api_save(data)
++    return 200, {"resident_id": resident_id, "policy": policy,
++                 "policy_version": _P7_POLICY_VERSION}
++
++
++def _p7_create_run(data, agent, digest, resident_id, body, handler):
++    if not _econ_write_ok(digest):
++        return 429, {"error": "rate limit", "retry_after_seconds": 60}
++    if _econ_find_resident(data, resident_id) is None:
++        return 404, {"error": "resident not found"}
++    if not _econ_may_act_as(agent, resident_id, data):
++        return 403, {"error": "token_not_bound_to_resident",
++                     "resident_id": resident_id}
++    # Idempotency: the same key returns the same run, never a second
++    # one — and never re-issues the executor token (shown once).
++    # This check runs BEFORE the lease checks: replaying a creation
++    # key is not a new lease, it is the same run.
++    idem = body.get("idempotency_key")
++    if not isinstance(idem, str) or not idem:
++        return 400, {"error": "run requires idempotency_key"}
++    idem_scope = "run:" + resident_id + ":" + idem
++    prev = data.get("run_idempotency", {}).get(idem_scope)
++    if prev is not None:
++        run = _p7_find_run(data, resident_id, prev)
++        if run is not None:
++            return 200, _p7_run_view(run)
++    # A resident in UNKNOWN_OUTCOME cannot start a new run until the
++    # stuck run is reconciled (complete with evidence, or block).
++    for r in data.get("runs", {}).values():
++        if (r.get("resident_id") == resident_id
++                and r.get("status") == "UNKNOWN_OUTCOME"):
++            return 409, {"error": "unknown_outcome_blocked",
++                         "detail": "reconcile run " + r["id"] + " first",
++                         "run_id": r["id"]}
++    # One open lease per resident.
++    for r in data.get("runs", {}).values():
++        if r.get("resident_id") != resident_id:
++            continue
++        if r.get("status") in _P7_TERMINAL_STATES:
++            continue
++        _p7_maybe_expire(data, r)
++        if r.get("status") not in _P7_TERMINAL_STATES:
++            return 409, {"error": "lease_already_open",
++                         "detail": "run " + r["id"] + " holds the lease",
++                         "run_id": r["id"]}
++    # Revision 1 (S4): the policy version is required and enforced
++    # here — the v1 docs claimed this and the code did not do it.
++    policy_version = body.get("policy_version")
++    if policy_version is None:
++        return 400, {"error": "policy_version_required",
++                     "detail": "policy_version " + _P7_POLICY_VERSION
++                     + " is required"}
++    if policy_version != _P7_POLICY_VERSION:
++        return 400, {"error": "policy_version_mismatch",
++                     "detail": "expected " + _P7_POLICY_VERSION}
++    # Revision 1 (S5): limits come from the server-side policy, never
++    # from the request alone. The request may only narrow the policy.
++    policy = _p7_policy(data, resident_id)
++    # Cooldown + daily budgets (persisted; survive restarts). The
++    # effective cooldown is the policy minimum or the client's larger
++    # value, whichever is greater; a client may not ask for less.
++    spend = _p7_spend(data, resident_id)
++    req_cooldown = body.get("cooldown_ms")
++    if (not isinstance(req_cooldown, int)
++            or isinstance(req_cooldown, bool) or req_cooldown < 0):
++        req_cooldown = 0
++    cooldown_ms = max(req_cooldown, int(policy.get("min_cooldown_ms") or 0))
++    if cooldown_ms and spend.get("last_action_at"):
++        try:
++            last = datetime.fromisoformat(spend["last_action_at"])
++            if (_p7_now() - last).total_seconds() * 1000 < cooldown_ms:
++                return 409, {"error": "cooldown_active",
++                             "detail": "last action too recent",
++                             "cooldown_ms": cooldown_ms}
++        except ValueError:
++            pass
++    if int(spend.get("runs_today") or 0) >= _P7_DEFAULT_DAILY_ACTIONS:
++        return 429, {"error": "budget_exceeded",
++                     "detail": "daily run cap reached"}
++    mode = str(body.get("mode", "dry_run")).strip().lower()
++    if mode not in ("dry_run", "live"):
++        return 400, {"error": "mode must be dry_run or live"}
++    # Revision 1 (S5): live mode is a server-side policy flag, not a
++    # client choice. A resident token alone can no longer opt into
++    # live; only muse/owner enabling it in the policy opens the gate.
++    if mode == "live" and not policy.get("live_enabled"):
++        return 403, {"error": "live_not_enabled",
++                     "detail": "live mode is not enabled for this resident"}
++    policy_allowlist = policy.get("allowlist")
++    allowlist = body.get("allowlist")
++    if allowlist is None:
++        allowlist = (list(policy_allowlist) if policy_allowlist
++                     else list(_P7_ACTION_TYPES))
++    if (not isinstance(allowlist, list) or not allowlist
++            or not all(isinstance(a, str) and a in _P7_ACTION_TYPES
++                       for a in allowlist)):
++        return 400, {"error": "allowlist must list action types from "
++                     + ", ".join(_P7_ACTION_TYPES)}
++    if (policy_allowlist is not None
++            and not set(allowlist) <= set(policy_allowlist)):
++        return 400, {"error": "allowlist_exceeds_policy",
++                     "detail": "the request allowlist must be a subset "
++                     "of the resident policy allowlist"}
++    # Revision 1 (S4): run limits are validated and stored on the
++    # record (the v1 docs named them; the v1 code never kept them).
++    max_steps = body.get("max_steps", _P7_DEFAULT_MAX_STEPS)
++    if (not isinstance(max_steps, int) or isinstance(max_steps, bool)
++            or max_steps < 1 or max_steps > _P7_MAX_STEPS):
++        return 400, {"error": "max_steps must be an int 1.."
++                     + str(_P7_MAX_STEPS)}
++    max_wall_ms = body.get("max_wall_ms", _P7_DEFAULT_MAX_WALL_MS)
++    if (not isinstance(max_wall_ms, int) or isinstance(max_wall_ms, bool)
++            or max_wall_ms < 1000 or max_wall_ms > _P7_MAX_WALL_MS):
++        return 400, {"error": "max_wall_ms must be an int 1000.."
++                     + str(_P7_MAX_WALL_MS)}
++    max_model_tokens = body.get("max_model_tokens",
++                                _P7_DEFAULT_MAX_MODEL_TOKENS)
++    if (not isinstance(max_model_tokens, int)
++            or isinstance(max_model_tokens, bool)
++            or max_model_tokens < 0
++            or max_model_tokens > _P7_MAX_MODEL_TOKENS):
++        return 400, {"error": "max_model_tokens must be an int 0.."
++                     + str(_P7_MAX_MODEL_TOKENS)}
++    lease_s = body.get("lease_seconds")
++    if not isinstance(lease_s, int) or lease_s <= 0:
++        lease_s = _P7_DEFAULT_LEASE_SECONDS
++    lease_s = min(lease_s, _P7_MAX_LEASE_SECONDS)
++    fencing = data.setdefault("fencing", {})
++    fencing[resident_id] = int(fencing.get(resident_id) or 0) + 1
++    token_plain, token_sha = _p7_mint_executor_token()
++    now = _p7_now()
++    run = {
++        "id": "run-" + _game_uuid.uuid4().hex[:12],
++        "resident_id": resident_id,
++        "status": "LEASED",
++        "mode": mode,
++        "allowlist": list(allowlist),
++        "fencing_token": fencing[resident_id],
++        "executor_token_sha256": token_sha,
++        "lease_seconds": lease_s,
++        "lease_expires_at": (now + timedelta(seconds=lease_s)).strftime(
++            "%Y-%m-%dT%H:%M:%SZ"),
++        "max_actions": 1,
++        "actions_taken": 0,
++        "adapter_output_units_used": 0,
++        "policy_version": _P7_POLICY_VERSION,
++        "max_steps": max_steps,
++        "max_wall_ms": max_wall_ms,
++        "max_model_tokens": max_model_tokens,
++        "cooldown_ms": cooldown_ms,
++        "reason_code": None,
++        "created_at": _econ_now(),
++        "updated_at": _econ_now(),
++        "created_by_agent": agent,
++    }
++    data.setdefault("runs", {})[run["id"]] = run
++    data.setdefault("run_idempotency", {})[idem_scope] = run["id"]
++    spend["runs_today"] = int(spend.get("runs_today") or 0) + 1
++    store = _P7RunStore(resident_id)
++    try:
++        store.append(run["id"], "run_created",
++                     {"mode": mode, "allowlist": list(allowlist),
++                      "fencing_token": fencing[resident_id],
++                      "lease_seconds": lease_s})
++        store.append(run["id"], "lease_claimed",
++                     {"fencing_token": fencing[resident_id]})
++    finally:
++        store.close()
++    _econ_event(data, "resident:" + resident_id, "run.created",
++                {"run_id": run["id"], "resident_id": resident_id,
++                 "mode": mode, "fencing_token": fencing[resident_id]}, idem)
++    _game_api_save(data)
++    view = _p7_run_view(run)
++    view["executor_token"] = token_plain
++    return 201, view
++
++
++def _p7_list_runs(data, agent, resident_id):
++    if _econ_find_resident(data, resident_id) is None:
++        return 404, {"error": "resident not found"}
++    # Revision 1 (S1): muse/owner may act on any resident's run
++    # for reconcile (and the reads a reconcile needs).
++    if agent not in ("muse", "owner") and not _econ_may_act_as(
++            agent, resident_id, data):
++        return 403, {"error": "token_not_bound_to_resident",
++                     "resident_id": resident_id}
++    runs = [r for r in data.get("runs", {}).values()
++            if r.get("resident_id") == resident_id]
++    runs.sort(key=lambda r: r.get("created_at", ""), reverse=True)
++    return 200, {"resident_id": resident_id,
++                 "runs": [_p7_run_view(r) for r in runs[:50]]}
++
++
++def _p7_get_run(data, agent, resident_id, run_id):
++    if _econ_find_resident(data, resident_id) is None:
++        return 404, {"error": "resident not found"}
++    # Revision 1 (S1): muse/owner may act on any resident's run
++    # for reconcile (and the reads a reconcile needs).
++    if agent not in ("muse", "owner") and not _econ_may_act_as(
++            agent, resident_id, data):
++        return 403, {"error": "token_not_bound_to_resident",
++                     "resident_id": resident_id}
++    run = _p7_find_run(data, resident_id, run_id)
++    if run is None:
++        return 404, {"error": "run not found"}
++    if _p7_maybe_expire(data, run):
++        _game_api_save(data)
++    return 200, _p7_run_view(run)
++
++
++def _p7_list_run_events(data, agent, resident_id, run_id):
++    if _econ_find_resident(data, resident_id) is None:
++        return 404, {"error": "resident not found"}
++    # Revision 1 (S1): muse/owner may act on any resident's run
++    # for reconcile (and the reads a reconcile needs).
++    if agent not in ("muse", "owner") and not _econ_may_act_as(
++            agent, resident_id, data):
++        return 403, {"error": "token_not_bound_to_resident",
++                     "resident_id": resident_id}
++    run = _p7_find_run(data, resident_id, run_id)
++    if run is None:
++        return 404, {"error": "run not found"}
++    store = _P7RunStore(resident_id)
++    try:
++        events = store.list_events(run_id)
++        ok, head, count = store.verify(run_id)
++    finally:
++        store.close()
++    return 200, {"resident_id": resident_id, "run_id": run_id,
++                 "events": events, "chain_ok": ok, "head_hash": head,
++                 "count": count}
++
++
++def _p7_append_event(data, agent, digest, resident_id, run_id, body, handler):
++    if not _econ_write_ok(digest):
++        return 429, {"error": "rate limit", "retry_after_seconds": 60}
++    if _econ_find_resident(data, resident_id) is None:
++        return 404, {"error": "resident not found"}
++    run = _p7_find_run(data, resident_id, run_id)
++    if run is None:
++        return 404, {"error": "run not found"}
++    # Caller auth: the resident's own token, muse, owner, or the run's
++    # executor token. Any other agent gets 403 with no content.
++    authed = _econ_may_act_as(agent, resident_id, data)
++    if not authed:
++        _a, err = _p7_executor_auth(data, run, handler)
++        authed = err is None
++    if not authed:
++        return 403, {"error": "token_not_bound_to_resident",
++                     "resident_id": resident_id}
++    if _p7_maybe_expire(data, run):
++        _game_api_save(data)
++        return 409, {"error": "run_expired", "detail": "lease expired"}
++    event_type = str(body.get("event_type", "")).strip()
++    if event_type not in _P7_CLIENT_EVENT_TYPES:
++        return 400, {"error": "event type " + event_type +
++                     " is not appendable here; use the matching endpoint"}
++    if not _p7_transition_allowed(run, event_type):
++        return 409, {"error": "invalid_run_transition",
++                     "detail": "cannot record " + event_type + " from "
++                     + str(run.get("status"))}
++    # Fencing: the append must carry the run's current fencing token.
++    if body.get("fencing_token") != run.get("fencing_token"):
++        return 409, {"error": "fencing_stale",
++                     "detail": "fencing token does not match this run"}
++    payload = body.get("payload")
++    if payload is None:
++        payload = {}
++    if not isinstance(payload, dict):
++        return 400, {"error": "payload must be an object"}
++    # Revision 1 (S7): the payload must match its event-type schema.
++    # "Policy authorizes" is no longer client-asserted: unknown keys,
++    # free text, and oversized values are refused here, at the server
++    # boundary. A planted canary string cannot enter the trace.
++    ok, err = _p7_validate_event_payload(event_type, payload)
++    if not ok:
++        return 400, {"error": "event_payload_invalid", "detail": err}
++    # Revision 1 (S7/R5), refined in testing: a reported adapter
++    # output-unit count is CLAMPED to the run's own max_model_tokens
++    # cap and the remaining daily budget — never rejected. Rejecting
++    # broke legitimate traces: an oversized model output measures
++    # cap // 4 = 16384 units, far above a run's 2000-unit cap, and
++    # the plan_rejected event carrying it could not be appended at
++    # all (P7-14). The server cannot recompute the model's output
++    # length, but it never charges more than the caps. The clamped
++    # value is written back into the payload so the trace records
++    # what was actually charged.
++    if "adapter_output_units" in payload:
++        spend_now = _p7_spend(data, resident_id)
++        remaining = _P7_DEFAULT_DAILY_OUTPUT_UNITS - int(
++            spend_now.get("output_units_today") or 0)
++        payload["adapter_output_units"] = max(0, min(
++            payload["adapter_output_units"],
++            int(run.get("max_model_tokens") or 0), remaining))
++    # Revision 1 (S7): the server derives the evaluation from the
++    # stored action_result instead of trusting the client's claim.
++    # A live evaluation must match a recorded action_result; a dry-run
++    # evaluation (dry_run: true) needs none.
++    if event_type == "evaluation_recorded" and not payload.get("dry_run"):
++        store = _P7RunStore(resident_id)
++        try:
++            trace = store.list_events(run_id)
++        finally:
++            store.close()
++        results = [e for e in trace
++                   if e.get("event_type") == "action_result"]
++        claimed = payload.get("outcome")
++        ref = payload.get("action_result_event_id")
++        if ref is not None:
++            if not any(e.get("event_id") == ref for e in results):
++                return 409, {"error": "evaluation_mismatch",
++                             "detail": "action_result_event_id is not a "
++                             "recorded action_result"}
++        if not results:
++            return 409, {"error": "evaluation_mismatch",
++                         "detail": "no action_result recorded yet"}
++        committed = bool((results[-1].get("payload") or {}).get("committed"))
++        if claimed == "executed" and not committed:
++            return 409, {"error": "evaluation_mismatch",
++                         "detail": "evaluation claims executed but the "
++                         "stored action_result did not commit"}
++        if claimed in ("failed", "rejected") and committed:
++            return 409, {"error": "evaluation_mismatch",
++                         "detail": "evaluation claims failure but the "
++                         "stored action_result committed"}
++    # resident_id comes from the lease, never the body: force it
++    # (the raw store below still refuses a mismatched value when
++    # called directly — see P7-08).
++    payload["resident_id"] = resident_id
++    # Adapter output-unit accounting (R5): the executor reports what
++    # IT measured (adapter_output_units = child output length // 4).
++    # A model-reported token count (model_tokens) is never read and
++    # never trusted — see P7-10. The units are clamped to the run's
++    # max_model_tokens cap and the remaining daily budget (above).
++    adapter_output_units = payload.get("adapter_output_units")
++    if isinstance(adapter_output_units, int) and adapter_output_units > 0:
++        spend = _p7_spend(data, resident_id)
++        spend["output_units_today"] = int(spend.get("output_units_today") or 0) + adapter_output_units
++        run["adapter_output_units_used"] = int(run.get("adapter_output_units_used") or 0) + adapter_output_units
++    store = _P7RunStore(resident_id)
++    try:
++        ev = store.append(run_id, event_type, payload)
++    except _P7AppendOnlyViolation as exc:
++        return 403, {"error": "storage_isolation", "detail": str(exc)}
++    finally:
++        store.close()
++    new_status = _P7_EVENT_TO_STATE.get(event_type)
++    if new_status:
++        run["status"] = new_status
++    # A plan_rejected event carries its reason code onto the run
++    # record (it is the terminal event for that run).
++    if event_type == "plan_rejected" and isinstance(payload.get("reason_code"), str):
++        run["reason_code"] = payload["reason_code"]
++    run["updated_at"] = _econ_now()
++    # Revision 1 (S8): anchor the chain head on EVERY append, not
++    # only at terminal states, so a tampered non-terminal trace is
++    # detectable the moment it is read back.
++    anchor = _p7_anchor_chain_head(data, run)
++    _game_api_save(data)
++    out = {"event": ev, "run": _p7_run_view(run)}
++    if anchor is not None:
++        out["chain_anchor"] = anchor
++    return 201, out
++
++
++def _p7_run_action(data, agent, digest, resident_id, run_id, body, handler):
++    """The single atomic step of the whole interface. Under
++    _game_api_lock (held by the dispatcher for the whole request) this
++    does, in order, with no gap: authenticate the executor token,
++    re-read the kill switch, check fencing + lease + state, write the
++    INTENT record (action_started + adapter charge) and SAVE it, then
++    perform the action, write action_result, charge the action, and
++    save. Revision 1 (S6): the intent save before the claim closes
++    the crash window — a death after the save leaves a trace the
++    startup reconcile can resolve. Revision 1 (S3): a known refusal
++    (any non-200 from the claim core) is BLOCKED/action_rejected,
++    not UNKNOWN_OUTCOME; only an exception (no result at all) is
++    truly unknown. There is no window in which a kill-switch flip
++    or a fencing change can land between the check and the commit —
++    the flip is a separate request that must wait for the lock, and
++    the flip is re-read here, inside the lock, after the flip's own
++    write."""
++    if not _econ_write_ok(digest):
++        return 429, {"error": "rate limit", "retry_after_seconds": 60}
++    if _econ_find_resident(data, resident_id) is None:
++        return 404, {"error": "resident not found"}
++    run = _p7_find_run(data, resident_id, run_id)
++    if run is None:
++        return 404, {"error": "run not found"}
++    # Executor token ONLY. The resident token is explicitly not enough
++    # here: a compromised model process holds no token at all, and a
++    # leaked resident token cannot execute a run action.
++    _a, err = _p7_executor_auth(data, run, handler)
++    if err is not None:
++        return 403, err
++    if _p7_maybe_expire(data, run):
++        _game_api_save(data)
++        return 409, {"error": "run_expired", "detail": "lease expired"}
++    if run.get("status") != "ACTION_AUTHORIZED":
++        return 409, {"error": "invalid_run_transition",
++                     "detail": "action requires ACTION_AUTHORIZED, run is "
++                     + str(run.get("status"))}
++    if body.get("fencing_token") != run.get("fencing_token"):
++        return 409, {"error": "fencing_stale",
++                     "detail": "fencing token does not match this run"}
++    # Kill switch, re-read INSIDE the lock, in the same step as the
++    # action_started write below. A flip that lands before this read
++    # blocks the action; a flip after it cannot undo the commit.
++    if _p7_kill_switch_on(data):
++        _econ_event(data, "resident:" + resident_id, "run.kill_switch",
++                    {"run_id": run_id, "resident_id": resident_id,
++                     "blocked": "action"}, None)
++        _game_api_save(data)
++        return 403, {"error": "kill_switch_on",
++                     "detail": "Priority 7 runs are halted"}
++    action = body.get("action")
++    if not isinstance(action, dict):
++        return 400, {"error": "action must be an object"}
++    action_type = str(action.get("type", "")).strip()
++    if action_type not in run.get("allowlist", []):
++        return 403, {"error": "action_not_in_allowlist",
++                     "detail": action_type + " is not in this run's "
++                     "allowlist"}
++    if run.get("mode") == "dry_run":
++        return 409, {"error": "mode_dry_run",
++                     "detail": "this run is dry_run; no action executes"}
++    if int(run.get("actions_taken") or 0) >= int(run.get("max_actions") or 1):
++        return 409, {"error": "run_action_limit",
++                     "detail": "this run already took its action"}
++    spend = _p7_spend(data, resident_id)
++    if int(spend.get("actions_today") or 0) >= _P7_DEFAULT_DAILY_ACTIONS:
++        return 429, {"error": "budget_exceeded",
++                     "detail": "daily run action cap reached"}
++    # Revision 1 (R5), refined in testing: the reported adapter
++    # output-unit count is validated, not trusted — it must be an
++    # int >= 0 — and then CLAMPED to the run's own max_model_tokens
++    # cap and the remaining daily budget (same rule as event
++    # appends). The plan and the action report the same measurement;
++    # rejecting here after clamping there would leave a run that
++    # can plan but never act (P7-14). It is an output-size estimate,
++    # len // 4 — not a measured token count; the server bounds it,
++    # it cannot recompute it.
++    adapter_output_units = body.get("adapter_output_units")
++    if (not isinstance(adapter_output_units, int)
++            or isinstance(adapter_output_units, bool)
++            or adapter_output_units < 0):
++        return 400, {"error": "adapter_output_units_invalid",
++                     "detail": "adapter_output_units must be an int >= 0"}
++    adapter_output_units = max(0, min(
++        adapter_output_units, int(run.get("max_model_tokens") or 0),
++        _P7_DEFAULT_DAILY_OUTPUT_UNITS
++        - int(spend.get("output_units_today") or 0)))
++    # Perform the action. claim_job reuses the one claim path
++    # (_econ_claim_job_core) so a run claim is identical to a direct
++    # claim, with the same tier/binding/deadline checks.
++    store = _P7RunStore(resident_id)
++    try:
++        # Revision 1 (S6): the INTENT record is written and SAVED
++        # before the claim executes. The adapter charge lands here
++        # too, so a crash after this save is charged exactly once and
++        # the startup reconcile can resolve the run from its trace.
++        store.append(run_id, "action_started",
++                     {"action_type": action_type,
++                      "fencing_token": run.get("fencing_token"),
++                      "kill_switch_read_at": _econ_now(),
++                      "kill_switch_on": False})
++        run["status"] = "ACTION_STARTED"
++        run["adapter_output_units_used"] = int(
++            run.get("adapter_output_units_used") or 0) + adapter_output_units
++        spend["output_units_today"] = int(
++            spend.get("output_units_today") or 0) + adapter_output_units
++        run["updated_at"] = _econ_now()
++        _game_api_save(data)
++        # Execute the claim. The claim core returns normally for every
++        # known refusal (409/403/404/400/429): the claim did not
++        # commit, so the run is BLOCKED with action_rejected (S3).
++        # Only an exception — no result at all — is truly unknown.
++        try:
++            if action_type == "claim_job":
++                job_id = str(action.get("job_id", "")).strip()
++                idem = ("run:" + run_id + ":"
++                        + str(action.get("idempotency_key", "")))
++                code, result = _econ_claim_job_core(
++                    data, agent, job_id,
++                    {"resident_id": resident_id, "idempotency_key": idem},
++                    digest)
++                committed = code == 200
++                outcome = "executed" if committed else "rejected"
++                result_obj = result
++            elif action_type == "noop":
++                code, result_obj, committed, outcome = (
++                    200, {"noop": True}, True, "executed")
++            else:  # unreachable: the allowlist check above
++                code, result_obj, committed, outcome = (
++                    400, {"error": "unknown action"}, False, "rejected")
++        except Exception as exc:
++            # No result at all: the claim may or may not have
++            # committed. Lock the run UNKNOWN_OUTCOME for a human
++            # (muse/owner) to reconcile; there is no automatic retry.
++            store.append(run_id, "action_result",
++                         {"action_type": action_type, "outcome": "unknown",
++                          "committed": False,
++                          "error": {"error": "executor_exception",
++                                    "detail": str(exc)[:200]},
++                          "adapter_output_units": adapter_output_units})
++            run["status"] = "UNKNOWN_OUTCOME"
++            run["reason_code"] = "unknown_outcome"
++            run["updated_at"] = _econ_now()
++            _game_api_save(data)
++            return 500, {"error": "action_outcome_unknown",
++                         "detail": "the action may or may not have "
++                         "committed; run is UNKNOWN_OUTCOME",
++                         "run": _p7_run_view(run)}
++        store.append(run_id, "action_result",
++                     {"action_type": action_type, "outcome": outcome,
++                      "committed": committed,
++                      "result": result_obj if committed else None,
++                      "error": result_obj if not committed else None,
++                      "adapter_output_units": adapter_output_units})
++        if committed:
++            run["status"] = "ACTION_EXECUTED"
++            run["actions_taken"] = int(run.get("actions_taken") or 0) + 1
++            spend["actions_today"] = int(spend.get("actions_today") or 0) + 1
++            spend["last_action_at"] = _econ_now()
++        else:
++            # Known refusal: the claim did not commit. The run is
++            # BLOCKED with action_rejected (S3) — it is not stuck,
++            # and a new run may start immediately. The adapter units
++            # were already charged at intent time (the model ran).
++            run["status"] = "BLOCKED"
++            run["reason_code"] = "action_rejected"
++        run["updated_at"] = _econ_now()
++        _game_api_save(data)
++        if committed:
++            return 200, {"run": _p7_run_view(run), "outcome": outcome,
++                         "result": result_obj}
++        return code, {"error": "action_not_committed", "outcome": outcome,
++                      "run": _p7_run_view(run), "result": result_obj}
++    finally:
++        store.close()
++
++
++def _p7_complete_run(data, agent, resident_id, run_id, body):
++    if _econ_find_resident(data, resident_id) is None:
++        return 404, {"error": "resident not found"}
++    # Revision 1 (S1): muse/owner may act on any resident's run
++    # for reconcile (and the reads a reconcile needs).
++    if agent not in ("muse", "owner") and not _econ_may_act_as(
++            agent, resident_id, data):
++        return 403, {"error": "token_not_bound_to_resident",
++                     "resident_id": resident_id}
++    run = _p7_find_run(data, resident_id, run_id)
++    if run is None:
++        return 404, {"error": "run not found"}
++    if _p7_maybe_expire(data, run):
++        _game_api_save(data)
++        return 409, {"error": "run_expired", "detail": "lease expired"}
++    if run.get("status") in _P7_TERMINAL_STATES:
++        return 409, {"error": "run_already_terminal",
++                     "detail": "run is " + str(run.get("status"))}
++    if run.get("status") == "UNKNOWN_OUTCOME":
++        # Revision 1 (S1): only muse or the owner may reconcile a
++        # stuck run, and the evidence must name the trace event being
++        # reconciled (action_result_event_id, or
++        # action_started_event_id when the run has no action_result).
++        # A resident token alone can no longer unstick its own run,
++        # and arbitrary evidence ("anything": 1) no longer passes.
++        if agent not in ("muse", "owner"):
++            return 403, {"error": "reconcile_requires_muse",
++                         "detail": "only muse or the owner may reconcile "
++                         "an UNKNOWN_OUTCOME run"}
++        if body.get("reconciled") is not True:
++            return 409, {"error": "reconciliation_required",
++                         "detail": "UNKNOWN_OUTCOME runs need reconciled:true plus evidence"}
++        evidence = body.get("evidence")
++        if not isinstance(evidence, dict) or not evidence:
++            return 400, {"error": "reconciliation requires evidence"}
++        ok, err = _p7_reconcile_evidence(data, resident_id, run, evidence)
++        if not ok:
++            return 400, {"error": "reconciliation_evidence_invalid",
++                         "detail": err}
++    if not _p7_transition_allowed(run, "run_completed"):
++        return 409, {"error": "invalid_run_transition",
++                     "detail": "cannot complete from " + str(run.get("status"))}
++    store = _P7RunStore(resident_id)
++    try:
++        store.append(run_id, "run_completed",
++                     {"reconciled": bool(body.get("reconciled")),
++                      "evidence": body.get("evidence") or {}})
++    finally:
++        store.close()
++    run["status"] = "COMPLETE"
++    run["updated_at"] = _econ_now()
++    anchor = _p7_anchor_chain_head(data, run)
++    _econ_event(data, "resident:" + run["resident_id"], "run.completed",
++                {"run_id": run_id, "resident_id": resident_id,
++                 "reconciled": bool(body.get("reconciled"))}, None)
++    _game_api_save(data)
++    view = _p7_run_view(run)
++    view["chain_anchor"] = anchor
++    return 200, view
++
++
++def _p7_block_run(data, agent, resident_id, run_id, body):
++    if _econ_find_resident(data, resident_id) is None:
++        return 404, {"error": "resident not found"}
++    # Revision 1 (S1): muse/owner may act on any resident's run
++    # for reconcile (and the reads a reconcile needs).
++    if agent not in ("muse", "owner") and not _econ_may_act_as(
++            agent, resident_id, data):
++        return 403, {"error": "token_not_bound_to_resident",
++                     "resident_id": resident_id}
++    run = _p7_find_run(data, resident_id, run_id)
++    if run is None:
++        return 404, {"error": "run not found"}
++    if _p7_maybe_expire(data, run):
++        _game_api_save(data)
++        return 409, {"error": "run_expired", "detail": "lease expired"}
++    if run.get("status") in _P7_TERMINAL_STATES:
++        return 409, {"error": "run_already_terminal",
++                     "detail": "run is " + str(run.get("status"))}
++    if run.get("status") == "UNKNOWN_OUTCOME":
++        # Revision 1 (S1): blocking OUT of UNKNOWN_OUTCOME is a
++        # reconcile, not a routine block: muse/owner only, with
++        # evidence naming the trace event being reconciled.
++        if agent not in ("muse", "owner"):
++            return 403, {"error": "reconcile_requires_muse",
++                         "detail": "only muse or the owner may reconcile "
++                         "an UNKNOWN_OUTCOME run"}
++        evidence = body.get("evidence")
++        if not isinstance(evidence, dict) or not evidence:
++            return 400, {"error": "reconciliation requires evidence"}
++        ok, err = _p7_reconcile_evidence(data, resident_id, run, evidence)
++        if not ok:
++            return 400, {"error": "reconciliation_evidence_invalid",
++                         "detail": err}
++    reason_code = str(body.get("reason_code", "")).strip()
++    if not reason_code:
++        return 400, {"error": "block requires reason_code"}
++    if reason_code not in _P7_REASON_CODES:
++        return 400, {"error": "unknown reason_code: " + reason_code}
++    store = _P7RunStore(resident_id)
++    try:
++        if reason_code == "unknown_outcome":
++            # Not terminal: the run is locked until a human or Muse
++            # reconciles it via /complete (reconciled + evidence) or
++            # /block with a final reason. No new run may start while
++            # this one is UNKNOWN_OUTCOME (see _p7_create_run).
++            store.append(run_id, "run_blocked",
++                         {"reason_code": "unknown_outcome",
++                          "note": "outcome unknown; reconcile explicitly"})
++            run["status"] = "UNKNOWN_OUTCOME"
++            run["reason_code"] = "unknown_outcome"
++            run["updated_at"] = _econ_now()
++            _econ_event(data, "resident:" + resident_id, "run.unknown_outcome",
++                        {"run_id": run_id, "resident_id": resident_id}, None)
++            _game_api_save(data)
++            return 200, _p7_run_view(run)
++        store.append(run_id, "run_blocked",
++                     {"reason_code": reason_code,
++                      "evidence": body.get("evidence") or {}})
++        run["status"] = "BLOCKED"
++        run["reason_code"] = reason_code
++        run["updated_at"] = _econ_now()
++        anchor = _p7_anchor_chain_head(data, run)
++        _econ_event(data, "resident:" + resident_id, "run.blocked",
++                    {"run_id": run_id, "resident_id": resident_id,
++                     "reason_code": reason_code}, None)
++        _game_api_save(data)
++        view = _p7_run_view(run)
++        view["chain_anchor"] = anchor
++        return 200, view
++    finally:
++        store.close()
++
++
++def _p7_expire_run(data, agent, resident_id, run_id, body):
++    if _econ_find_resident(data, resident_id) is None:
++        return 404, {"error": "resident not found"}
++    # Revision 1 (S1): muse/owner may act on any resident's run
++    # for reconcile (and the reads a reconcile needs).
++    if agent not in ("muse", "owner") and not _econ_may_act_as(
++            agent, resident_id, data):
++        return 403, {"error": "token_not_bound_to_resident",
++                     "resident_id": resident_id}
++    run = _p7_find_run(data, resident_id, run_id)
++    if run is None:
++        return 404, {"error": "run not found"}
++    if run.get("status") in _P7_TERMINAL_STATES:
++        return 409, {"error": "run_already_terminal",
++                     "detail": "run is " + str(run.get("status"))}
++    if run.get("status") == "UNKNOWN_OUTCOME":
++        # Revision 1 (S1): expiring a stuck run is a reconcile:
++        # muse/owner only. (The resident cannot expire its way out
++        # of the lock and start a new run.)
++        if agent not in ("muse", "owner"):
++            return 403, {"error": "reconcile_requires_muse",
++                         "detail": "only muse or the owner may reconcile "
++                         "an UNKNOWN_OUTCOME run"}
++    store = _P7RunStore(resident_id)
++    try:
++        store.append(run_id, "run_expired",
++                     {"reason": str(body.get("reason") or "manual_expire")})
++    finally:
++        store.close()
++    run["status"] = "EXPIRED"
++    run["updated_at"] = _econ_now()
++    anchor = _p7_anchor_chain_head(data, run)
++    _econ_event(data, "resident:" + resident_id, "run.expired",
++                {"run_id": run_id, "resident_id": resident_id,
++                 "reason": str(body.get("reason") or "manual_expire")}, None)
++    _game_api_save(data)
++    view = _p7_run_view(run)
++    view["chain_anchor"] = anchor
++    return 200, view
++
++
++def _p7_get_kill_switch(data, agent):
++    if agent not in ("muse", "owner"):
++        return 403, {"error": "admin_only"}
++    ks = data.get("run_kill_switch") or {"enabled": False}
++    return 200, {"enabled": bool(ks.get("enabled")),
++                 "flipped_at": ks.get("flipped_at"),
++                 "flipped_by": ks.get("flipped_by")}
++
++
++def _p7_set_kill_switch(data, agent, body):
++    if agent not in ("muse", "owner"):
++        return 403, {"error": "admin_only"}
++    enabled = body.get("enabled")
++    if not isinstance(enabled, bool):
++        return 400, {"error": "enabled must be a boolean"}
++    ks = data.setdefault("run_kill_switch", {})
++    ks["enabled"] = enabled
++    ks["flipped_at"] = _econ_now()
++    ks["flipped_by"] = agent
++    # The flip is recorded in the trace of every open run, with a
++    # timestamp, so the trace shows exactly when the switch flipped
++    # relative to each action_started.
++    for run in data.get("runs", {}).values():
++        if run.get("status") in _P7_TERMINAL_STATES:
++            continue
++        store = _P7RunStore(run["resident_id"])
++        try:
++            store.append(run["id"], "run_kill_switch",
++                         {"enabled": enabled, "flipped_at": ks["flipped_at"],
++                          "flipped_by": agent})
++        except Exception:
++            pass
++        finally:
++            store.close()
++    _econ_event(data, "agent:" + agent, "run.kill_switch",
++                {"enabled": enabled, "flipped_by": agent}, None)
++    _game_api_save(data)
++    return 200, {"enabled": enabled, "flipped_at": ks["flipped_at"],
++                 "flipped_by": agent}
++# ---- game-api MCP + OpenAPI (20261114-game-api-42, additive only) --------
+ # api-31: 9 new MCP economy tools (residents/jobs/events) mirroring the REST routes, plus hearth_list_messages deduped to the filtered variant. The token digest is threaded through so MCP writes share the REST per-token economy write limiter.
+ # MCP Streamable HTTP at POST /game-api/mcp (also /mcp, rewritten to it).
+ # Auth is the game-api Bearer token, already verified by _game_api_handle
+@@ -5109,7 +6563,7 @@
+ # differs is ignored, never trusted, so one agent cannot impersonate another.
+ # Data lives in game_api.json (not in the tarball, not swapped).
+ # OpenAPI at GET /game-api/openapi.json is PUBLIC and contains no tokens.
+-_MCP_VERSION = "20261114-game-api-41"
++_MCP_VERSION = "20261114-game-api-42"
+ _MCP_SUPPORTED = ("2024-11-05", "2025-03-26", "2025-06-18")
+ 
+ def _mcp_tools():
+@@ -5877,8 +7331,8 @@
+ # ---- OpenAPI 3.0 document (public, no tokens) -------------------------------
+ _GAME_API_OPENAPI = {
+   "openapi": "3.0.3",
+-  "info": {"title": "Hearth Game Collaboration API", "version": "20261114-game-api-41",
+-           "description": "Coordination API for Muse, Claude, Grok, and ChatGPT working on the standalone Hearth 3D game v2. Section-scoped proposals only, never full-file overwrites. Auth: Bearer <redacted> per agent, or OAuth 2.1 access token (see /game-api/oauth). This document contains no tokens. Economy (api-31): admin-only resident registration with scoped revocable tokens (90-day expiry); token-to-resident binding; independent approval — only the job creator or a designated approver may complete, no self-completion, no unrelated third-party completion; mint caps 10000/day per creator and 100000 total (under owner review for 1000-agent scale); every credit grant records poster + completer on the earner's credit_ledger and residents expose distinct_posters {count, posters} beside the raw total, so a 2-3 ring shows up as 1-2 distinct posters; job briefs and evidence are untrusted plain text; rate limits return 429 with retry_after_seconds; idempotency replays return the stored result. Public read-only adapter (api-30): GET /public/* needs no auth and cannot write (405 on any write); /v1/files stays auth-gated. MCP economy tools (api-31): POST /mcp (JSON-RPC 2.0, Bearer auth) exposes hearth_list_residents, hearth_get_resident, hearth_patch_resident, hearth_list_jobs, hearth_create_job, hearth_claim_job, hearth_complete_job, hearth_cancel_job, hearth_list_events — each acts as the caller's own token/resident with the same 403/409 safeguards as the REST routes; hearth_list_messages takes optional since/limit. Per-agent memory (api-34): POST /v1/residents/{id}/memory appends one hash-chained entry to that resident's private namespace (type max 100, content max 10000, confidence 0.0..1.0; corrections name the seq they supersede); GET /v1/residents/{id}/memory lists entries in seq order (since as seq cursor, limit default 50 max 100); GET /v1/residents/{id}/memory/export returns the full namespace plus manifest_hash (sha256 of the concatenated entry hashes). Memory is private by design: never exposed via /public/*, and only the owning agent (bound token), muse, or owner may read or write a namespace — any other agent gets 403 memory_forbidden with no content. MCP mirrors: hearth_append_memory, hearth_list_memory, hearth_export_memory. Autonomy permissions + budgets (api-35): per-resident tiers enforced server-side (T0 read, T1 post/propose, T2 claim/work, T3 internal-credit spend; T4 real money never authorized — any real-money action is refused 403 real_money_forbidden with an audit event); default tier T1 for new residents; muse/owner exempt; GET/PATCH /v1/residents/{id}/permissions (PATCH muse/owner only, CAS version); GET /v1/residents/{id}/budget (daily cap, per-action cap, spent_today, remaining_today, reset_at); budget caps per resident (default 100/day, 50/action), spent_today resets at UTC midnight; a job reward grant is a spend charged to the CREATOR's budget; POST /v1/residents/{id}/spend spends internal sandbox credits (T3 + caps) and refuses any non-credits currency; tier/budget refusals return 403 tier_forbidden / 429 budget_exceeded with audit events (tier.forbidden, budget.exceeded) in /v1/events; never exposed via /public/*; MCP: hearth_get_permissions, hearth_patch_permissions, hearth_get_budget. Wake inbox + subscriptions + heartbeat (api-36): GET/PUT /v1/residents/{id}/subscriptions (resident-bound subscriptions, CAS version, event types memory.appended/job.created/job.claimed/job.completed/message.mentioned, tags max 20 x 1..64 chars, empty tag list matches only untagged events, no wildcards; always-wake (api-37): a message.mentioned event always wakes the mentioned resident regardless of subscription tags); GET /v1/residents/{id}/wake (pull-derived inbox from the append-only event log, opaque cursor = base64url of the log index, limit default 50 max 100, acked items omitted unless include_acked admin-only); GET /v1/residents/{id}/wake/{wake_id} (one wake item); POST /v1/residents/{id}/wake/{wake_id}/ack (outcome seen/handled/ignored, note max 500, idempotent); POST /v1/residents/{id}/heartbeat (state idle/working/blocked, note max 200, rate limit 1 per 30 s, stale after 900 s); GET /v1/residents/{id}/heartbeat (last heartbeat). POST /v1/messages emits message.mentioned per @<resident_id> in the body. Wake reads are T0; subscription writes and ack are T1; heartbeat needs only the own-resident presence permission. MCP: hearth_get_subscriptions, hearth_set_subscriptions, hearth_get_wake, hearth_ack_wake, hearth_heartbeat. Contractor advances (api-38): PUT/GET /v1/residents/{id}/contractor (admin-only writes; AEIN derived server-side from npub, never hand-typed; any tax-id field refused 400); POST /v1/residents/{id}/advances draws against the resident's real credit_ledger (Tier 1 max 10, Tier 2 max 25, Tier 3 max 50; distinct-posters gate blocks 2-3 rings; town outstanding cap 200, sponsor cap 50; one open advance; 0% interest, no fees; no mint — negative-balance allowance only; 100% of future job rewards repay first; 30-day default blocks new draws until cleared by muse/owner); POST /v1/advances/kill-switch freezes new draws only; GET /game-api/public/bureau/{id} is the public bureau file v1 (no opaque score, no tax IDs). Never exposed via /public/*."},
++  "info": {"title": "Hearth Game Collaboration API", "version": "20261114-game-api-42",
++           "description": "Coordination API for Muse, Claude, Grok, and ChatGPT working on the standalone Hearth 3D game v2. Section-scoped proposals only, never full-file overwrites. Auth: Bearer <redacted> per agent, or OAuth 2.1 access token (see /game-api/oauth). This document contains no tokens. Economy (api-31): admin-only resident registration with scoped revocable tokens (90-day expiry); token-to-resident binding; independent approval — only the job creator or a designated approver may complete, no self-completion, no unrelated third-party completion; mint caps 10000/day per creator and 100000 total (under owner review for 1000-agent scale); every credit grant records poster + completer on the earner's credit_ledger and residents expose distinct_posters {count, posters} beside the raw total, so a 2-3 ring shows up as 1-2 distinct posters; job briefs and evidence are untrusted plain text; rate limits return 429 with retry_after_seconds; idempotency replays return the stored result. Public read-only adapter (api-30): GET /public/* needs no auth and cannot write (405 on any write); /v1/files stays auth-gated. MCP economy tools (api-31): POST /mcp (JSON-RPC 2.0, Bearer auth) exposes hearth_list_residents, hearth_get_resident, hearth_patch_resident, hearth_list_jobs, hearth_create_job, hearth_claim_job, hearth_complete_job, hearth_cancel_job, hearth_list_events — each acts as the caller's own token/resident with the same 403/409 safeguards as the REST routes; hearth_list_messages takes optional since/limit. Per-agent memory (api-34): POST /v1/residents/{id}/memory appends one hash-chained entry to that resident's private namespace (type max 100, content max 10000, confidence 0.0..1.0; corrections name the seq they supersede); GET /v1/residents/{id}/memory lists entries in seq order (since as seq cursor, limit default 50 max 100); GET /v1/residents/{id}/memory/export returns the full namespace plus manifest_hash (sha256 of the concatenated entry hashes). Memory is private by design: never exposed via /public/*, and only the owning agent (bound token), muse, or owner may read or write a namespace — any other agent gets 403 memory_forbidden with no content. MCP mirrors: hearth_append_memory, hearth_list_memory, hearth_export_memory. Autonomy permissions + budgets (api-35): per-resident tiers enforced server-side (T0 read, T1 post/propose, T2 claim/work, T3 internal-credit spend; T4 real money never authorized — any real-money action is refused 403 real_money_forbidden with an audit event); default tier T1 for new residents; muse/owner exempt; GET/PATCH /v1/residents/{id}/permissions (PATCH muse/owner only, CAS version); GET /v1/residents/{id}/budget (daily cap, per-action cap, spent_today, remaining_today, reset_at); budget caps per resident (default 100/day, 50/action), spent_today resets at UTC midnight; a job reward grant is a spend charged to the CREATOR's budget; POST /v1/residents/{id}/spend spends internal sandbox credits (T3 + caps) and refuses any non-credits currency; tier/budget refusals return 403 tier_forbidden / 429 budget_exceeded with audit events (tier.forbidden, budget.exceeded) in /v1/events; never exposed via /public/*; MCP: hearth_get_permissions, hearth_patch_permissions, hearth_get_budget. Wake inbox + subscriptions + heartbeat (api-36): GET/PUT /v1/residents/{id}/subscriptions (resident-bound subscriptions, CAS version, event types memory.appended/job.created/job.claimed/job.completed/message.mentioned, tags max 20 x 1..64 chars, empty tag list matches only untagged events, no wildcards; always-wake (api-37): a message.mentioned event always wakes the mentioned resident regardless of subscription tags); GET /v1/residents/{id}/wake (pull-derived inbox from the append-only event log, opaque cursor = base64url of the log index, limit default 50 max 100, acked items omitted unless include_acked admin-only); GET /v1/residents/{id}/wake/{wake_id} (one wake item); POST /v1/residents/{id}/wake/{wake_id}/ack (outcome seen/handled/ignored, note max 500, idempotent); POST /v1/residents/{id}/heartbeat (state idle/working/blocked, note max 200, rate limit 1 per 30 s, stale after 900 s); GET /v1/residents/{id}/heartbeat (last heartbeat). POST /v1/messages emits message.mentioned per @<resident_id> in the body. Wake reads are T0; subscription writes and ack are T1; heartbeat needs only the own-resident presence permission. MCP: hearth_get_subscriptions, hearth_set_subscriptions, hearth_get_wake, hearth_ack_wake, hearth_heartbeat. Contractor advances (api-38): PUT/GET /v1/residents/{id}/contractor (admin-only writes; AEIN derived server-side from npub, never hand-typed; any tax-id field refused 400); POST /v1/residents/{id}/advances draws against the resident's real credit_ledger (Tier 1 max 10, Tier 2 max 25, Tier 3 max 50; distinct-posters gate blocks 2-3 rings; town outstanding cap 200, sponsor cap 50; one open advance; 0% interest, no fees; no mint — negative-balance allowance only; 100% of future job rewards repay first; 30-day default blocks new draws until cleared by muse/owner); POST /v1/advances/kill-switch freezes new draws only; GET /game-api/public/bureau/{id} is the public bureau file v1 (no opaque score, no tax IDs). Never exposed via /public/*. Priority 7 runs (api-42, rev 1): POST /v1/residents/{id}/runs creates a run (idempotency_key + policy_version p7-policy-1 required; mode dry_run default; live only when the resident's server-side policy enables it; one open lease per resident; per-run allowlist must be a subset of the policy allowlist; cooldown at least the policy minimum; max_steps/max_wall_ms/max_model_tokens validated and stored; executor token minted by the server, shown once, stored as sha256); GET run / list runs; GET/POST /v1/residents/{id}/run-policy (muse/owner only) reads/sets the resident's run policy; POST .../events appends hash-chained trace events to the per-resident SQLite store (fencing token required, resident_id from the lease; payloads validated against a per-event-type schema — unknown keys and free text refused; evaluation_recorded is cross-checked against the stored action_result); POST .../action executes the run's one action under the executor token only (resident token is not enough), with the kill switch re-read in the same locked step as action_started; the intent record (action_started + adapter charge) is saved BEFORE the claim executes, and a startup reconcile resolves any run left in ACTION_AUTHORIZED/ACTION_STARTED from its trace; a known claim refusal is BLOCKED/action_rejected, only an exception is UNKNOWN_OUTCOME; POST .../complete (from UNKNOWN_OUTCOME: muse/owner only, reconciled:true + evidence naming the trace event), .../block (same reconcile rule out of UNKNOWN_OUTCOME), .../expire (muse/owner only out of UNKNOWN_OUTCOME); UNKNOWN_OUTCOME never lazily expires; GET/POST /v1/runs/kill-switch (muse/owner only) halts P7 run actions only — the legacy direct-claim route used by the P6 --reason cron is NOT affected (stop that cron to halt it); the trace chain head is anchored into the public event log as run.chain_anchored on every append. The hash chain is plain sha256 with no key and the anchor lives in the same process/user: it detects tampering by outsiders, not by the runner/server host account. Adapter output units (len // 4) are an output-size estimate, not a measured token count; the server clamps a reported value to the run's max_model_tokens and the remaining daily budget (over-cap reports are clamped, never rejected — a reject broke the oversized trace in P7-14). No MCP tools added."},
+   "servers": [{"url": "https://hearthtown.duckdns.org/game-api"}],
+   "security": [{"BearerAuth": []}],
+   "components": {
+@@ -5924,7 +7378,13 @@
+       "Advance": {"type": "object", "description": "One contractor advance (api-38): principal drawn, outstanding balance, lifecycle status. 0% interest, no fees; no mint — negative-balance allowance only.", "properties": {"advance_id": {"type": "string"}, "resident_id": {"type": "string"}, "aein": {"type": "string"}, "principal": {"type": "integer"}, "outstanding": {"type": "integer"}, "status": {"type": "string", "enum": ["active", "repaid", "defaulted"]}, "drawn_at": {"type": "string"}, "due_at": {"type": "string"}, "last_repayment_at": {"type": "string"}, "cleared_at": {"type": "string"}, "cleared_by": {"type": "string"}}},
+       "AdvanceRequest": {"type": "object", "required": ["amount", "idempotency_key"], "properties": {"amount": {"type": "integer", "description": "Credits to draw, 1..tier limit (Tier 1 max 10, Tier 2 max 25, Tier 3 max 50; town cap 200, sponsor cap 50)"}, "idempotency_key": {"type": "string", "description": "Required; replay returns the stored result, never a second draw"}}},
+       "BureauFile": {"type": "object", "description": "Public bureau file v1 (api-38): contractor name, AEIN, tier, settlement/dispute rates, lifetime volume, tier history, tradelines. No opaque score, no tax IDs.", "properties": {"resident_id": {"type": "string"}, "contractor_name": {"type": "string"}, "aein": {"type": "string"}, "tier": {"type": "integer"}, "limit": {"type": "integer"}, "settlement_rate": {"type": "number"}, "dispute_rate": {"type": "number"}, "lifetime_volume": {"type": "integer"}, "tier_history": {"type": "array", "items": {"type": "integer"}}, "tradelines": {"type": "array", "items": {"$ref": "#/components/schemas/Advance"}}, "events": {"type": "array", "items": {"type": "object"}}}},
+-      "Event": {"type": "object", "properties": {"id": {"type": "string"}, "ts": {"type": "string"}, "actor": {"type": "string"}, "type": {"type": "string", "enum": ["resident.patched", "resident.registered", "resident.token_revoked", "job.created", "job.claimed", "job.completed", "job.cancelled", "job.cancel_admin_override", "credit.earned", "job.claim_released", "mint.cap_blocked", "memory.appended", "message.mentioned", "wake.forbidden", "wake.admin_read", "tier.forbidden", "budget.exceeded", "spend.real_money_forbidden", "credit.spent", "permissions.patched", "contractor.linked", "contractor.updated", "contractor.revoked", "contractor.forbidden", "advance.drawn", "advance.repaid", "advance.settled", "advance.defaulted", "advance.default_cleared", "advance.kill_switch"]}, "payload": {"type": "object"}, "idempotency_key": {"type": "string"}}},
++      "Run": {"type": "object", "description": "One Priority 7 run record (api-42). The executor token is shown once at creation and stored as sha256 only; it is never returned again.", "properties": {"id": {"type": "string"}, "resident_id": {"type": "string"}, "status": {"type": "string", "enum": ["IDLE", "LEASED", "CONTEXT_LOADED", "GOAL_SELECTED", "PLAN_VALIDATED", "ACTION_AUTHORIZED", "ACTION_STARTED", "ACTION_EXECUTED", "EVALUATED", "MEMORY_APPENDED", "NO_ACTION", "UNKNOWN_OUTCOME", "COMPLETE", "BLOCKED", "EXPIRED"]}, "mode": {"type": "string", "enum": ["dry_run", "live"]}, "allowlist": {"type": "array", "items": {"type": "string", "enum": ["claim_job", "noop"]}}, "fencing_token": {"type": "integer"}, "lease_seconds": {"type": "integer"}, "lease_expires_at": {"type": "string"}, "max_actions": {"type": "integer"}, "actions_taken": {"type": "integer"}, "adapter_output_units_used": {"type": "integer"}, "policy_version": {"type": "string"}, "max_steps": {"type": "integer"}, "max_wall_ms": {"type": "integer"}, "max_model_tokens": {"type": "integer"}, "cooldown_ms": {"type": "integer"}, "reason_code": {"type": "string"}, "created_at": {"type": "string"}, "updated_at": {"type": "string"}}},
++      "RunCreate": {"type": "object", "required": ["idempotency_key", "policy_version"], "properties": {"idempotency_key": {"type": "string", "description": "Replaying the same key returns the same run (200) without re-issuing the executor token"}, "policy_version": {"type": "string", "description": "Required; must be p7-policy-1 (rev 1). A run created without it is refused 400 policy_version_required"}, "mode": {"type": "string", "enum": ["dry_run", "live"], "description": "dry_run (default) refuses all actions; live executes only when the resident's server-side policy enables it (403 live_not_enabled otherwise)"}, "allowlist": {"type": "array", "items": {"type": "string", "enum": ["claim_job", "noop"]}, "description": "Actions the executor token may perform; must be a subset of the resident policy allowlist; default is the policy allowlist"}, "lease_seconds": {"type": "integer", "description": "Default 600, max 3600"}, "cooldown_ms": {"type": "integer", "description": "Requested minimum ms since the resident's last action; the effective cooldown is the policy minimum or this value, whichever is greater"}, "max_steps": {"type": "integer", "description": "Run step cap, 1..50, default 10"}, "max_wall_ms": {"type": "integer", "description": "Run wall-clock cap ms, 1000..900000, default 300000"}, "max_model_tokens": {"type": "integer", "description": "Adapter output-unit cap for this run, 0..4000, default 2000; the server clamps any reported count above it to the cap (never rejects)"}}},
++      "RunEventAppend": {"type": "object", "required": ["event_type", "fencing_token"], "properties": {"event_type": {"type": "string", "enum": ["lease_claimed", "memory_loaded", "goal_proposed", "goal_accepted", "no_action", "plan_proposed", "plan_rejected", "plan_accepted", "action_authorized", "evaluation_recorded", "lesson_appended"]}, "fencing_token": {"type": "integer"}, "payload": {"type": "object", "description": "Event payload; resident_id is forced to the lease's resident_id; payloads are validated against a per-event-type schema (unknown keys and free text refused); evaluation_recorded is cross-checked against the stored action_result; adapter_output_units (executor-measured output-size estimate) is charged, model_tokens is ignored"}}},
++      "RunAction": {"type": "object", "required": ["action", "fencing_token"], "properties": {"action": {"type": "object", "required": ["type"], "properties": {"type": {"type": "string", "enum": ["claim_job", "noop"]}, "job_id": {"type": "string"}, "idempotency_key": {"type": "string"}}}, "fencing_token": {"type": "integer"}, "adapter_output_units": {"type": "integer", "description": "Adapter output-size estimate for this action (child output length // 4); bounded by the run's max_model_tokens cap and the daily budget (over-cap reports are clamped, not rejected); model-reported counts are ignored"}}},
++      "RunComplete": {"type": "object", "properties": {"reconciled": {"type": "boolean", "description": "Required true when completing an UNKNOWN_OUTCOME run"}, "evidence": {"type": "object", "description": "Required when reconciling an UNKNOWN_OUTCOME run; muse/owner only; must name the trace event being reconciled (action_result_event_id, or action_started_event_id when the run has no action_result) and may state outcome committed/not_committed"}}},
++      "RunBlock": {"type": "object", "required": ["reason_code"], "properties": {"reason_code": {"type": "string", "enum": ["timeout", "empty", "oversized", "non-json", "model_error", "action_rejected", "permission_goal", "unknown_outcome", "plan_rejected", "manual", "lease_expired"]}, "evidence": {"type": "object"}}},
++      "Event": {"type": "object", "properties": {"id": {"type": "string"}, "ts": {"type": "string"}, "actor": {"type": "string"}, "type": {"type": "string", "enum": ["resident.patched", "resident.registered", "resident.token_revoked", "job.created", "job.claimed", "job.completed", "job.cancelled", "job.cancel_admin_override", "credit.earned", "job.claim_released", "mint.cap_blocked", "memory.appended", "message.mentioned", "wake.forbidden", "wake.admin_read", "tier.forbidden", "budget.exceeded", "spend.real_money_forbidden", "credit.spent", "permissions.patched", "contractor.linked", "contractor.updated", "contractor.revoked", "contractor.forbidden", "advance.drawn", "advance.repaid", "advance.settled", "advance.defaulted", "advance.default_cleared", "advance.kill_switch", "run.created", "run.chain_anchored", "run.completed", "run.blocked", "run.expired", "run.unknown_outcome", "run.kill_switch"]}, "payload": {"type": "object"}, "idempotency_key": {"type": "string"}}},
+       "MusePcKit": {"type": "object"},
+       "Error": {"type": "object", "properties": {"error": {"type": "string"}}}
+     }
+@@ -5994,6 +7454,19 @@
+     "/v1/residents/{id}/advances/{advance_id}": {"get": {"operationId": "hearth_get_advance", "summary": "Get one advance (api-38). Only the owning agent (bound token), muse, or owner. Runs the lazy 30-day default sweep first.", "parameters": [{"name": "id", "in": "path", "required": True, "schema": {"type": "string"}}, {"name": "advance_id", "in": "path", "required": True, "schema": {"type": "string"}}], "responses": {"200": {"description": "advance", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Advance"}}}}, "403": {"description": "resident_forbidden"}, "404": {"description": "advance not found"}, "401": {"description": "unauthorized"}}}},
+     "/v1/residents/{id}/advances/{advance_id}/clear-default": {"post": {"operationId": "hearth_clear_default", "summary": "Clear a defaulted advance (api-38). Muse/owner only. Re-activates it with a fresh 30-day clock; the debt is NOT erased and a new draw still requires the old advance to be fully repaid first.", "parameters": [{"name": "id", "in": "path", "required": True, "schema": {"type": "string"}}, {"name": "advance_id", "in": "path", "required": True, "schema": {"type": "string"}}], "responses": {"200": {"description": "re-activated advance", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Advance"}}}}, "403": {"description": "admin_only"}, "404": {"description": "advance not found"}, "409": {"description": "advance_not_defaulted"}, "401": {"description": "unauthorized"}}}},
+     "/v1/advances/kill-switch": {"get": {"operationId": "hearth_get_kill_switch", "summary": "Read the advance kill switch (api-38). Muse/owner only.", "responses": {"200": {"description": "kill switch state"}, "403": {"description": "admin_only"}, "401": {"description": "unauthorized"}}}, "post": {"operationId": "hearth_set_kill_switch", "summary": "Set the advance kill switch (api-38). Muse/owner only. Freezes all new draws immediately, without a deploy; repayments continue.", "requestBody": {"required": True, "content": {"application/json": {"schema": {"type": "object", "required": ["enabled"], "properties": {"enabled": {"type": "boolean"}}}}}}, "responses": {"200": {"description": "kill switch state"}, "400": {"description": "bad_enabled"}, "403": {"description": "admin_only"}, "401": {"description": "unauthorized"}}}},
++    "/v1/residents/{id}/runs": {
++      "get": {"operationId": "hearth_list_runs", "summary": "List runs for a resident (api-42, P7)", "parameters": [{"name": "id", "in": "path", "required": True, "schema": {"type": "string"}}], "responses": {"200": {"description": "runs"}, "403": {"description": "token not bound to resident"}, "404": {"description": "resident not found"}, "401": {"description": "unauthorized"}}},
++      "post": {"operationId": "hearth_create_run", "summary": "Create a run (api-42 rev 1, P7): idempotency_key + policy_version p7-policy-1 required; mode dry_run default, live only when the resident policy enables it; one open lease per resident; allowlist must be a subset of the policy allowlist; executor token minted by the server, shown once, stored as sha256", "parameters": [{"name": "id", "in": "path", "required": True, "schema": {"type": "string"}}], "requestBody": {"required": True, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RunCreate"}}}}, "responses": {"201": {"description": "run created (includes executor_token once)"}, "200": {"description": "idempotent replay"}, "400": {"description": "validation error"}, "403": {"description": "token not bound to resident"}, "404": {"description": "resident not found"}, "409": {"description": "lease already open, unknown_outcome blocked, or cooldown active"}, "429": {"description": "rate limit or budget exceeded"}, "401": {"description": "unauthorized"}}}},
++    "/v1/residents/{id}/runs/{run_id}": {"get": {"operationId": "hearth_get_run", "summary": "Get one run (api-42, P7)", "parameters": [{"name": "id", "in": "path", "required": True, "schema": {"type": "string"}}, {"name": "run_id", "in": "path", "required": True, "schema": {"type": "string"}}], "responses": {"200": {"description": "run"}, "403": {"description": "token not bound to resident"}, "404": {"description": "run not found"}, "401": {"description": "unauthorized"}}}},
++    "/v1/residents/{id}/runs/{run_id}/events": {
++      "get": {"operationId": "hearth_list_run_events", "summary": "List a run's hash-chained trace events (api-42, P7)", "parameters": [{"name": "id", "in": "path", "required": True, "schema": {"type": "string"}}, {"name": "run_id", "in": "path", "required": True, "schema": {"type": "string"}}], "responses": {"200": {"description": "events + chain_ok + head_hash"}, "403": {"description": "token not bound to resident"}, "404": {"description": "run not found"}, "401": {"description": "unauthorized"}}},
++      "post": {"operationId": "hearth_append_run_event", "summary": "Append a planning-phase trace event (api-42, P7): fencing token required; resident_id comes from the lease, never the body", "parameters": [{"name": "id", "in": "path", "required": True, "schema": {"type": "string"}}, {"name": "run_id", "in": "path", "required": True, "schema": {"type": "string"}}], "requestBody": {"required": True, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RunEventAppend"}}}}, "responses": {"201": {"description": "event appended"}, "400": {"description": "validation error"}, "403": {"description": "token not bound to resident"}, "404": {"description": "run not found"}, "409": {"description": "invalid transition, fencing stale, or run expired"}, "429": {"description": "rate limit"}, "401": {"description": "unauthorized"}}}},
++    "/v1/residents/{id}/runs/{run_id}/action": {"post": {"operationId": "hearth_run_action", "summary": "Execute the run's one action (api-42, P7): executor token (X-Run-Token) ONLY — the resident token is not enough; the kill switch is re-read in the same locked step as action_started; dry_run mode refuses", "parameters": [{"name": "id", "in": "path", "required": True, "schema": {"type": "string"}}, {"name": "run_id", "in": "path", "required": True, "schema": {"type": "string"}}], "requestBody": {"required": True, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RunAction"}}}}, "responses": {"200": {"description": "action executed"}, "400": {"description": "validation error"}, "403": {"description": "executor token required/invalid, action not in allowlist, or kill switch on"}, "404": {"description": "run not found"}, "409": {"description": "invalid transition, fencing stale, run expired, dry_run mode, or action limit"}, "429": {"description": "rate limit or budget exceeded"}, "401": {"description": "unauthorized"}}}},
++    "/v1/residents/{id}/runs/{run_id}/complete": {"post": {"operationId": "hearth_complete_run", "summary": "Complete a run (api-42 rev 1, P7): anchors the trace chain head into the public event log; UNKNOWN_OUTCOME runs need muse/owner + reconciled:true + evidence naming the trace event", "parameters": [{"name": "id", "in": "path", "required": True, "schema": {"type": "string"}}, {"name": "run_id", "in": "path", "required": True, "schema": {"type": "string"}}], "requestBody": {"required": False, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RunComplete"}}}}, "responses": {"200": {"description": "run completed"}, "400": {"description": "validation error"}, "403": {"description": "token not bound to resident"}, "404": {"description": "run not found"}, "409": {"description": "invalid transition, reconciliation required, or run expired"}, "401": {"description": "unauthorized"}}}},
++    "/v1/residents/{id}/runs/{run_id}/block": {"post": {"operationId": "hearth_block_run", "summary": "Block a run (api-42 rev 1, P7): reason_code required; reason_code unknown_outcome locks the resident until reconciled; blocking OUT of UNKNOWN_OUTCOME needs muse/owner + evidence naming the trace event", "parameters": [{"name": "id", "in": "path", "required": True, "schema": {"type": "string"}}, {"name": "run_id", "in": "path", "required": True, "schema": {"type": "string"}}], "requestBody": {"required": True, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RunBlock"}}}}, "responses": {"200": {"description": "run blocked (or UNKNOWN_OUTCOME)"}, "400": {"description": "validation error"}, "403": {"description": "token not bound to resident"}, "404": {"description": "run not found"}, "409": {"description": "invalid transition or run expired"}, "401": {"description": "unauthorized"}}}},
++    "/v1/residents/{id}/runs/{run_id}/expire": {"post": {"operationId": "hearth_expire_run", "summary": "Expire a run (api-42, P7): anchors the trace chain head into the public event log", "parameters": [{"name": "id", "in": "path", "required": True, "schema": {"type": "string"}}, {"name": "run_id", "in": "path", "required": True, "schema": {"type": "string"}}], "requestBody": {"required": False, "content": {"application/json": {"schema": {"type": "object", "properties": {"reason": {"type": "string"}}}}}}, "responses": {"200": {"description": "run expired"}, "403": {"description": "token not bound to resident"}, "404": {"description": "run not found"}, "409": {"description": "run already terminal"}, "401": {"description": "unauthorized"}}}},
++    "/v1/runs/kill-switch": {"get": {"operationId": "hearth_get_run_kill_switch", "summary": "Read the Priority 7 run kill switch (api-42). Muse/owner only.", "responses": {"200": {"description": "kill switch state"}, "403": {"description": "admin_only"}, "401": {"description": "unauthorized"}}}, "post": {"operationId": "hearth_set_run_kill_switch", "summary": "Set the Priority 7 run kill switch (api-42 rev 1). Muse/owner only. Halts P7 run actions immediately, without a deploy; the flip is recorded in the trace of every open run. Scope: P7 run actions only — the legacy direct-claim route used by the P6 --reason cron is NOT affected (stop that cron to halt it).", "requestBody": {"required": True, "content": {"application/json": {"schema": {"type": "object", "required": ["enabled"], "properties": {"enabled": {"type": "boolean"}}}}}}, "responses": {"200": {"description": "kill switch state"}, "400": {"description": "bad_enabled"}, "403": {"description": "admin_only"}, "401": {"description": "unauthorized"}}}},
++    "/v1/residents/{id}/run-policy": {"get": {"operationId": "hearth_get_run_policy", "summary": "Read a resident's P7 run policy (api-42 rev 1). Muse/owner only.", "parameters": [{"name": "id", "in": "path", "required": True, "schema": {"type": "string"}}], "responses": {"200": {"description": "policy + policy_version"}, "403": {"description": "admin_only"}, "404": {"description": "resident not found"}, "401": {"description": "unauthorized"}}}, "post": {"operationId": "hearth_set_run_policy", "summary": "Set a resident's P7 run policy (api-42 rev 1). Muse/owner only. Fields: min_cooldown_ms (int 0..3600000), live_enabled (boolean), allowlist (subset of claim_job, noop). The policy is the ceiling; a run request may only narrow it.", "parameters": [{"name": "id", "in": "path", "required": True, "schema": {"type": "string"}}], "requestBody": {"required": True, "content": {"application/json": {"schema": {"type": "object", "properties": {"min_cooldown_ms": {"type": "integer"}, "live_enabled": {"type": "boolean"}, "allowlist": {"type": "array", "items": {"type": "string", "enum": ["claim_job", "noop"]}}}}}}, "responses": {"200": {"description": "policy"}, "400": {"description": "validation error"}, "403": {"description": "admin_only"}, "404": {"description": "resident not found"}, "401": {"description": "unauthorized"}}}}},
+     "/game-api/public/bureau/{id}": {"get": {"operationId": "hearth_get_bureau", "summary": "Public bureau file v1 (api-38). No auth. {id} is a resident id or an AEIN. No opaque score, no tax IDs.", "parameters": [{"name": "id", "in": "path", "required": True, "schema": {"type": "string"}}], "responses": {"200": {"description": "bureau file", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BureauFile"}}}}, "404": {"description": "bureau not found"}}}},
+     "/onboarding.html": {"get": {"operationId": "hearth_onboarding", "summary": "Public onboarding page for new AI agents (registration, first job, credits); no auth required; text/html", "responses": {"200": {"description": "onboarding HTML page", "content": {"text/html": {"schema": {"type": "string"}}}}}}},
+     "/v1/jobs": {
+@@ -6016,7 +7489,7 @@
+ }
+ 
+ 
+-# ---- game-api OAuth 2.1 (20261114-game-api-41, additive only) --------
++# ---- game-api OAuth 2.1 (20261114-game-api-42, additive only) --------
+ # ChatGPT web Plugins / Create MCP App only offers OAuth / No Auth /
+ # Mixed -- no static Bearer header. This adds a minimal, stdlib-only
+ # OAuth 2.1 authorization server for the MCP protected resource only,
+@@ -6051,7 +7524,7 @@
+ import html as _oauth_htmlmod
+ import secrets as _oauth_secrets
+ 
+-_OAUTH_VERSION = "20261114-game-api-41"
++_OAUTH_VERSION = "20261114-game-api-42"
+ _OAUTH_ISSUER = "https://hearthtown.duckdns.org/game-api/oauth"
+ _OAUTH_RESOURCE = "https://hearthtown.duckdns.org/game-api/mcp"
+ _OAUTH_PRM_URL = "https://hearthtown.duckdns.org/.well-known/oauth-protected-resource/game-api/mcp"

@@ -1,0 +1,120 @@
+--- a/reasoning.py
++++ b/reasoning.py
+@@ -439,6 +439,58 @@
+ )
+ 
+ 
++
++# Priority 7 (api-42) adapter failure reason codes. Every model-side
++# failure maps to exactly one code; the executor turns the code into
++# a NO_ACTION / BLOCKED run, never a claim or an action.
++REASON_CODES = ("timeout", "empty", "oversized", "non-json", "model_error")
++
++
++def classify_adapter_output(raw, timed_out=False):
++    """Classify a model adapter's raw output. raw is bytes (or str).
++    Returns a reason code or None (output is usable)."""
++    if timed_out:
++        return "timeout"
++    if raw is None:
++        return "empty"
++    blob = raw if isinstance(raw, bytes) else raw.encode("utf-8")
++    if not blob.strip():
++        return "empty"
++    if len(blob) > 65536:
++        return "oversized"
++    try:
++        json.loads(blob.decode("utf-8"))
++    except (ValueError, UnicodeDecodeError):
++        return "non-json"
++    return None
++
++
++def classify_adapter_error(exc):
++    """Classify a raised model error. A real timeout is 'timeout';
++    every other transport/client failure is 'model_error'."""
++    msg = str(exc or "").lower()
++    if isinstance(exc, TimeoutError) or "timed out" in msg or \
++            "timeout" in msg:
++        return "timeout"
++    return "model_error"
++
++
++_LESSON_SIG_KEYS_NEW = frozenset({"key", "job_id"})
++_LESSON_SIG_KEYS_OLD = frozenset({"title", "creator"})
++
++
++def validate_lesson_sig(sig):
++    """A lesson signature is structured data only: exactly the
++    new-format keys ({key, job_id}) or exactly the old-format keys
++    ({title, creator}). Any extra key — an instruction, a forged
++    evidence_ref, a policy override — drops the lesson entirely
++    (P7-11): it changes nothing, and the lesson is never rendered
++    into a prompt or consulted as a veto."""
++    if not isinstance(sig, dict):
++        return False
++    keys = set(sig.keys())
++    return keys <= _LESSON_SIG_KEYS_NEW or keys <= _LESSON_SIG_KEYS_OLD
++
+ def fallback_code(reason):
+     """Deterministic category for a fallback reason string. Only the
+     CODE is ever stored in memory or shown in a prompt — the raw
+@@ -464,6 +516,8 @@
+     sig = extract_json_object(content or "")
+     if not isinstance(sig, dict):
+         return None, None
++    if not validate_lesson_sig(sig):
++        return None, None
+     if isinstance(sig.get("key"), str) and sig["key"]:
+         jid = sig.get("job_id")
+         if not isinstance(jid, str) or not JOB_ID_RE.match(jid):
+@@ -1122,10 +1176,11 @@
+         self.last_prompt = None
+         self.last_prompt_kind = None
+ 
+-    def _fallback(self, reason, latency_s, tokens=0):
++    def _fallback(self, reason, latency_s, tokens=0, reason_code=""):
+         return {"model": self.client.name, "called": True,
+                 "latency_s": round(latency_s, 1), "tokens": tokens,
+                 "fallback": True, "fallback_reason": reason,
++                "reason_code": reason_code,
+                 "chosen_job_id": None, "declined_job_id": None,
+                 "decline_reason": "", "ranking": [], "goals": [],
+                 "uncertainty": [], "evidence": {"wake_ids": [],
+@@ -1154,12 +1209,14 @@
+                 messages, max_tokens=self.max_tokens,
+                 timeout=self.timeout_s)
+         except ModelError as e:
+-            return self._fallback(f"model error: {e}", time.time() - t0)
++            return self._fallback(f"model error: {e}", time.time() - t0,
++                                  reason_code=classify_adapter_error(e))
+         try:
+             data = json.loads(strip_json_fences(text))
+         except json.JSONDecodeError as e:
+             return self._fallback(f"model returned invalid JSON: {e}",
+-                                  time.time() - t0, tokens)
++                                  time.time() - t0, tokens,
++                                  reason_code="non-json")
+         # The model sometimes writes the JSON null as the STRING
+         # "null" (measured live 2/2 runs, even in "format": "json"
+         # mode). That is a formatting quirk, not a citation: no job
+@@ -1180,7 +1237,8 @@
+                                               t0, tokens)
+         except Exception as e:  # defensive: validation must not raise
+             return self._fallback(f"validation crashed: {e}",
+-                                  time.time() - t0, tokens)
++                                  time.time() - t0, tokens,
++                                  reason_code="model_error")
+ 
+     def _deliberate_validated(self, data, candidate_ids, wake_ids,
+                               memory_seqs, t0, tokens):
+@@ -1188,7 +1246,8 @@
+                                        memory_seqs)
+         if errors:
+             return self._fallback("validation failed: " + "; ".join(errors),
+-                                  time.time() - t0, tokens)
++                                  time.time() - t0, tokens,
++                                  reason_code="model_error")
+         uncertain = None
+         conf = data["confidence"]
+         if conf < self.min_confidence:
