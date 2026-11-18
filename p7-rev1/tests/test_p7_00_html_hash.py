@@ -35,7 +35,10 @@ def load_module(path):
 
 def main():
     api41 = os.path.join(BASE, "stage-v17-game-api41", "server.py")
-    api42 = os.path.join(BASE, "stage-v17-game-api42-DRAFT", "server.py")
+    # The published rev-1 server (not the v1 DRAFT: rev 1 added the
+    # run-policy route, so the OpenAPI path count is 63, not 62).
+    api42 = os.path.join(BASE, "priority7", "revision", "work",
+                         "stage-v17-game-api42-REV", "server.py")
     mod41 = load_module(api41)
     mod42 = load_module(api42)
     html41 = mod41._GAME_V2_HTML
@@ -46,14 +49,14 @@ def main():
     assert len(html42.encode()) == V26_BYTES, len(html42.encode())
     print(f"  embedded game HTML identical to api-41: sha {sha[:16]}..., "
           f"{V26_BYTES} bytes (v26)")
-    # OpenAPI (in-module doc): version moved to api-42, 62 paths, no
+    # OpenAPI (in-module doc): version moved to api-42, 63 paths, no
     # api-41 string remains.
     oa = mod42._GAME_API_OPENAPI
     assert oa["info"]["version"] == "20261114-game-api-42", oa["info"]
-    assert len(oa["paths"]) == 62, len(oa["paths"])
+    assert len(oa["paths"]) == 63, len(oa["paths"])
     assert "20261114-game-api-41" not in json.dumps(oa), \
         "api-41 string remains in OpenAPI doc"
-    print("  OpenAPI version api-42, 62 paths, no api-41 string")
+    print("  OpenAPI version api-42, 63 paths, no api-41 string")
     h = Harness("p7_00", PORT).start()
     try:
         h.clear_rates()

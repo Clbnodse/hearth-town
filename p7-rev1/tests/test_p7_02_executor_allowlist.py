@@ -95,7 +95,10 @@ def main():
         assert s == 403 and b.get("error") == "executor_token_invalid", (s, b)
         print("  claim_job with forged executor token: 403 executor_token_invalid")
 
-        # Run 3: allowlist ["noop"] — claim_job must be refused.
+        # Run 3: allowlist ["noop"] — the trace can only authorize
+        # noop now (rev 1 minors, M1: an out-of-allowlist kind is
+        # refused at record time, so the drive itself uses noop);
+        # claim_job must still be refused at /action.
         s, run3 = h.create_run("ember", mode="live", allowlist=["noop"],
                                idem="a3")
         assert s == 409 and run3.get("error") == "lease_already_open", (s, run3)
@@ -107,7 +110,8 @@ def main():
                                idem="a3")
         assert s == 201, (s, run3)
         rid3, ft3, et3 = run3["id"], run3["fencing_token"], run3["executor_token"]
-        h.drive_to_authorized("ember", rid3, ft3, exec_token=et3)
+        h.drive_to_authorized("ember", rid3, ft3, exec_token=et3,
+                              action_type="noop")
         s, b = h.call("POST", f"/v1/residents/ember/runs/{rid3}/action",
                       {"action": {"type": "claim_job", "job_id": job2["id"],
                                   "idempotency_key": "a3-claim"},

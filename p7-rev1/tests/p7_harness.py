@@ -206,17 +206,20 @@ class Harness:
             extra_headers=headers)
 
     def drive_to_authorized(self, resident, run_id, fencing_token,
-                            exec_token=None):
+                            exec_token=None, action_type="claim_job"):
         """Append the planning-phase events up to ACTION_AUTHORIZED.
-        Returns the last (status, body)."""
+        Returns the last (status, body). action_type is the kind the
+        goal/plan/action carry — it must be in the run's allowlist
+        (rev 1 minors, M1: out-of-allowlist kinds are refused at
+        record time)."""
         steps = [
             ("memory_loaded", {"entries": 0}),
             ("goal_proposed", {"goal": {"ref": "job",
-                                        "kind": "claim_job"}}),
+                                        "kind": action_type}}),
             ("goal_accepted", {"goal": {"ref": "job"}}),
-            ("plan_proposed", {"plan": {"action": {"type": "claim_job"}}}),
-            ("plan_accepted", {"plan": {"action": {"type": "claim_job"}}}),
-            ("action_authorized", {"action": {"type": "claim_job"}}),
+            ("plan_proposed", {"plan": {"action": {"type": action_type}}}),
+            ("plan_accepted", {"plan": {"action": {"type": action_type}}}),
+            ("action_authorized", {"action": {"type": action_type}}),
         ]
         last = None
         for et, payload in steps:
