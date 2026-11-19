@@ -155,8 +155,8 @@ Fix (acknowledged residual, documented, not papered over): creator and executor 
 ## 4. Executor / model process boundary (revised)
 
 - The model subprocess (`reasoning_suggest.py`, NEW, 60 lines) reads the wake + minimized context on stdin, builds a real Reasoner inside the subprocess only (Ollama / MetaApiClient — no `.suggest()` method exists; the v1 draft's call was corrected), validates its own stdout through `classify_adapter_output`, and prints `{"suggestion": ..., "reason_code": ...}`. It never reads any test-hook env var. It never sees a credential: the child env is exactly `{PATH, HOME, PYTHONPATH}`.
-- The runner (`spawn_model_suggestion`, bounded_loop.py line ~670) starts the child with Popen + a bounded read (R2), a 120 s module-constant timeout (no env override), and a minimized context (R4). The runner holds the resident token and receives the executor token in the 201 — the R6 residual, documented above.
-- `reasoning.py` is UNCHANGED in this revision (byte-identical to the v1 patched file); its oversized check is belt-and-braces behind the bounded read.
+- The runner (`spawn_model_suggestion`, bounded_loop.py line ~670) starts the child with Popen + a bounded read (R2), a 180 s module-constant timeout (raised from 120 s on the owner's word, Nov 19, P7-32; no env override), and a minimized context (R4). The runner holds the resident token and receives the executor token in the 201 — the R6 residual, documented above.
+- `reasoning.py` changed twice after rev1 on the owner's word (Nov 19): cap 160→400 (P7-31) and client timeout 90→150 s (P7-32); its oversized check is belt-and-braces behind the bounded read.
 
 ## 5. State machine (revised)
 

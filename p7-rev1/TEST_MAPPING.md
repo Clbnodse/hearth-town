@@ -2,14 +2,14 @@
 
 Every Claude gap (12), every ChatGPT contract acceptance test (12), every
 Grok acceptance item (8), every matrix test (14), and every Claude audit
-finding (S1–S9, R1–R6) → concrete test file + expected output. All 32 tests
+finding (S1–S9, R1–R6) → concrete test file + expected output. All 33 tests
 pass; commands are run from
 `~/workspace/game-collab-api/priority7/revision/tests/` as
 `python3 test_p7_XX_<name>.py`. All tests run against the real server, real
 SQLite trace stores, and (where stated) real subprocesses — no mocks of the
 server, the store, or the subprocess boundary. The v1 mapping
 (`formal-proposal/TEST_MAPPING.md`) still describes the v1 suite; this file
-describes the revision: what changed in the 18 v1 tests, and the 13 new ones.
+describes the revision: what changed in the 18 v1 tests, and the 15 new ones.
 
 ## A. Claude's 12 gaps (msg-fe7dd927) — revision status
 
