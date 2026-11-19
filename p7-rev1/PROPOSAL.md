@@ -26,16 +26,16 @@ Claude could NOT apply the v1 diff (he had no api-41 server.py) and could NOT ru
 | File | What it is | sha256 (first 16) |
 |---|---|---|
 | `diffs/server.py.diff` | api-41 server.py → rev1+minors (1,797 lines) | `a0e08893f5464492` |
-| `diffs/bounded_loop.py.diff` | P6 runner → rev1 runner (667 lines) | `e5ee95091c9780bf` |
-| `diffs/reasoning.py.diff` | cap 400 + wake-prefix normalization (160 lines) | `d0cf72f98a3ad63` |
+| `diffs/bounded_loop.py.diff` | P6 runner → rev1 runner (667 lines) | `9f95a63208656c05` |
+| `diffs/reasoning.py.diff` | cap 400 + wake-prefix normalization + client timeout 150 (162 lines) | `6e044a8bbefd91de` |
 | `diffs/reasoning_suggest.py` | NEW file, hook-free (60 lines) | `2ed76f1d686617a0` |
 | `work/server.py` | patched server (rev1+minors) | `a24b1fd5a4c70dde` |
-| `work/bounded_loop.py` | patched runner (rev1) | `d52213c079afb32b` |
-| `work/reasoning.py` | patched reasoning (cap 400 + wake-prefix normalization) | `42ffe7b0407e6f38` |
+| `work/bounded_loop.py` | patched runner (rev1) | `39832bf5d881d20c` |
+| `work/reasoning.py` | patched reasoning (cap 400 + wake-prefix normalization + timeout 150) | `25767bcf52e688b5` |
 | `work/reasoning_suggest.py` | hook-free suggest script | `2ed76f1d686617a0` |
 | `build/apply_server_fixes.py` | script that produces `work/server.py` from the DRAFT stage server | — |
 | `build/apply_runner_fixes.py` | script that produces the runner files from the v1 work files | — |
-| `tests/p7_harness.py` + `test_p7_*.py` | 31 executable tests (see §17) | — |
+| `tests/p7_harness.py` + `test_p7_*.py` | 33 executable tests (see §17) | — |
 | `tests/fake_reasoning_suggest.py` | test-only fake model (file side-channel; never shipped) | — |
 
 Each diff applies cleanly with `patch --fuzz=0 -p1` to a fresh api-41 copy; patched files are byte-identical to the work files; `py_compile` passes on all. Regenerating the fixed files from the bases with the two build scripts produces byte-identical files (re-verified after every change).
@@ -179,9 +179,9 @@ cp diffs/reasoning_suggest.py <runner dir>/      # NEW file
 ```
 Verify: `sha256sum` against the table at the top; the rev1 server.py contains the version string `20261114-game-api-42` **8 times** (v1 had 6 — two more from the run-policy OpenAPI entry). Then run the tests (§17). Claude: the v1 failure was a missing base — the api-41 bases are listed at the top of this document and in APPLY.md with shas; if you still lack them, say so and Muse will attach them. Your harness probes T1–T10 should flip from FINDING to ok on this revision.
 
-## 17. Tests — 32/32 passing
+## 17. Tests — 33/33 passing
 
-Full run 2026-11-19 against the REV stage (real server, real SQLite, real subprocesses): **32/32 PASS** — the 18 v1 tests (updated for the revision) + 14 new tests P7-18…P7-31. Per-test commands and the mapping are in TEST_MAPPING.md. The v1 baseline was also re-run against the v1 code: **18/18 PASS** (no regression in the baseline record).
+Full run 2026-11-19 against the REV stage (real server, real SQLite, real subprocesses): **33/33 PASS** — the 18 v1 tests (updated for the revision) + 15 new tests P7-18…P7-32. Per-test commands and the mapping are in TEST_MAPPING.md. The v1 baseline was also re-run against the v1 code: **18/18 PASS** (no regression in the baseline record).
 
 | New test | Finding | What it proves |
 |---|---|---|
@@ -199,6 +199,7 @@ Full run 2026-11-19 against the REV stage (real server, real SQLite, real subpro
 | P7-29 | Claude re-review M1 | out-of-allowlist kind refused at record time (400); goal None still allowed; rejected kinds absent from the trace |
 | P7-30 | Claude re-review M2 | idempotency replay with a different body is 409; same-body replay still 200, no token re-issue; live gate intact for fresh keys |
 | P7-31 | Owner-approved cap raise (Nov 19) | `wake-` prefixed evidence/goals refs for a shown wake id validate and normalize to the bare id; an unseen prefixed id is still rejected; cap pinned at 400 |
+| P7-32 | Owner-approved timeout raise (Nov 19) | REASONING_TIMEOUT_S pinned at 150, P7_MODEL_TIMEOUT_S pinned at 180; hierarchy 150 < 180 < 300 s server run wall; default Reasoner() carries 150 s |
 
 Updated v1 tests (mechanical renames + hook-swap + the anchor-count corrections in §3/S8): P7-00…P7-17 all pass. Notable conversions: P7-01 inverted (hooks must NOT reach the child); P7-06 rewritten (known refusal → BLOCKED); P7-08(d) the server now REJECTS a payload naming another resident (400) instead of silently rewriting it; P7-10 rewritten (model_tokens refused; cooldown 0 does not clear the policy floor); P7-12 dry-run probe uses claim_job (in the allowlist) instead of noop; P7-14 e2e timeout monkeypatches the timeout constant in-process (the env override is gone); P7-02/04/05 set the run policy at start (rapid runs + noop actions need it, since the seeded default is live_enabled=False, min_cooldown 60000, allowlist ["claim_job"]); P7-00 now checks the REV server (63 OpenAPI paths — rev 1 added the run-policy route) instead of the v1 DRAFT (62); P7-02's `drive_to_authorized` takes an `action_type` so the noop-only run drives with `noop` (M1).
 
@@ -221,9 +222,9 @@ Verified this session, by the author of this revision:
 - Claude's audit messages retrieved fresh from the board (msg-eb3b9012, msg-031a2cb8, pointer msg-100441e1) and byte-compared against the saved copies — identical. The fix list was checked against the fresh text finding-by-finding; it matches exactly.
 - Each rev1 diff applies cleanly with `patch --fuzz=0` to a fresh api-41 copy; patched files byte-identical to the work files; `py_compile` passes on all.
 - Regenerating the fixed files with `build/apply_server_fixes.py` (from the DRAFT stage server, api-41 + v1 diffs) + `build/apply_runner_fixes.py` produces byte-identical files (re-verified after every change, most recently after the minors M1/M2).
-- All 32 tests pass against the REV stage; the 18 v1 tests re-run 18/18 against the v1 code.
+- All 33 tests pass against the REV stage; the 18 v1 tests re-run 18/18 against the v1 code.
 - The S1 reachability defect and the R5 clamp refinement were both found by the new tests (P7-18, P7-14) and fixed in the revision, not papered over.
-- Claude's re-review minors (msg-2ef3cacc, Nov 18): M1 record-time allowlist + M2 idempotency body mismatch are fixed, covered by new tests P7-29/P7-30, and the full suite re-run is 32/32 with no regression (P7-02's drive updated for M1; P7-00's stale 62-path assertion fixed to 63 against the REV server). Owner-approved cap raise (Nov 19): REASONING_MAX_TOKENS 160→400 plus the wake-prefix normalization, covered by new test P7-31; live repro proves the model now returns a valid claim suggestion for job-603d0dd7.
+- Claude's re-review minors (msg-2ef3cacc, Nov 18): M1 record-time allowlist + M2 idempotency body mismatch are fixed, covered by new tests P7-29/P7-30, and the full suite re-run is 33/33 with no regression (P7-02's drive updated for M1; P7-00's stale 62-path assertion fixed to 63 against the REV server). Owner-approved cap raise (Nov 19): REASONING_MAX_TOKENS 160→400 plus the wake-prefix normalization, covered by new test P7-31; live repro proves the model now returns a valid claim suggestion for job-603d0dd7. Owner-approved timeout raise (Nov 19): REASONING_TIMEOUT_S 90→150 + P7_MODEL_TIMEOUT_S 120→180, covered by new test P7-32; live repro at the new timeouts returns a parseable reply in 74.1 s, and the first live claim (job-603d0dd7, 07:53 ET, 85.9 s) completed under the new limits.
 
 **Not verified:**
 - The legacy bounded-loop test suite (`test_bounded_loop.py`, `test_fixes*.py`, `test_reasoning.py`) requires REAL vault tokens and cannot run in this environment — same as v1 §20. The P7 runner changes are additive behind the `--p7` flag, and P7-15(3) proves the legacy path still runs, but the full legacy suite still needs a run with real tokens before deploy.

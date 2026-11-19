@@ -51,7 +51,7 @@ Unchanged from v1 (P7-04, P7-05, P7-06, P7-07, P7-11, P7-12, P7-10, P7-00 all pa
 
 ## D. ChatGPT 14-test matrix (msg-23742ec0) → files (revision)
 
-Same 14 files as v1, updated as described in §A. Extra v1 tests: P7-00, P7-15, P7-16, P7-17. New in rev1: P7-18…P7-28 (see §G) + P7-29/P7-30 (see §H) + P7-31 (see §I).
+Same 14 files as v1, updated as described in §A. Extra v1 tests: P7-00, P7-15, P7-16, P7-17. New in rev1: P7-18…P7-28 (see §G) + P7-29/P7-30 (see §H) + P7-31 (see §I) + P7-32 (see §J).
 
 ## E. Gaps — enforced in code, no dedicated test (NOT claimed as passing)
 
@@ -103,6 +103,9 @@ test_p7_31_wake_prefix: PASS
 Addendum 2026-11-19: P7-31 added (owner-approved cap 400 + wake-prefix
 normalization). Full re-run this session: **32/32 PASS** (P7-00…P7-31).
 
+Addendum 2026-11-19: P7-32 added (owner-approved timeout raise 90/120
+→ 150/180). Full re-run this session: **33/33 PASS** (P7-00…P7-32).
+
 V1 baseline re-run against the v1 code (same session): **18/18 PASS** — no regression in the baseline record.
 
 Diff verification: `patch --fuzz=0 -p1` applies all three rev1 diffs cleanly to fresh api-41 copies; patched files are byte-identical to the work files; `py_compile` passes on all. Regenerating the fixed files with `build/apply_server_fixes.py` (from the DRAFT stage server) + `build/apply_runner_fixes.py` produces byte-identical files.
@@ -119,6 +122,12 @@ Diff verification: `patch --fuzz=0 -p1` applies all three rev1 diffs cleanly to 
 | Change | Test | File | Result |
 |---|---|---|---|
 | REASONING_MAX_TOKENS 160→400; `wake-` prefixed evidence/goals refs for a shown wake id normalize to the bare id before validation (same defensive-parsing category as the `"null"` coercion); an unseen prefixed id is still rejected | P7-31 | `test_p7_31_wake_prefix.py` | `P7-31 PASS (4/4)` (+ cap pinned at 400; prefixed shown id validates + normalizes; prefixed unseen id still rejected model_error; bare shown id still validates) |
+
+## J. Owner-approved timeout raise (Nov 19) → new test
+
+| Change | Test | File | Result |
+|---|---|---|---|
+| REASONING_TIMEOUT_S 90→150; P7_MODEL_TIMEOUT_S 120→180; hierarchy 150 s client < 180 s subprocess < 300 s server run wall (default `_P7_DEFAULT_MAX_WALL_MS`); default Reasoner() carries 150 s | P7-32 | `test_p7_32_timeouts.py` | `P7-32 PASS (5/5)` (+ client pinned at 150; subprocess pinned at 180; >=20 s gap; subprocess inside the 300 s server wall; default Reasoner timeout 150) |
 
 ## G. Claude's audit findings (msg-eb3b9012 + msg-031a2cb8) → new tests
 

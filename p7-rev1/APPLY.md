@@ -22,8 +22,8 @@ Local copies: `~/workspace/game-collab-api/stage-v17-game-api41/server.py`,
 | Diff | sha256 | Lines |
 |---|---|---|
 | `diffs/server.py.diff` | `a0e08893f54644924a244acba20a5601175fd80334228ea018b2a09fe865fc2e` | 1,797 |
-| `diffs/bounded_loop.py.diff` | `e5ee95091c9780bf2510e5119ce56c6ab39a7bed781229b639bb04c3e4ba961c` | 667 |
-| `diffs/reasoning.py.diff` | `d0cf72f98a3ad63b0bfc0b449a1961f7f6594af585ad9c2fca59a3abfa7a77f3` | 160 (cap 400 + wake-prefix normalization, 2026-11-19) |
+| `diffs/bounded_loop.py.diff` | `9f95a63208656c0501e4f662a553ece72805a55cd7b77c9408f826cc8a9e6b74` | 667 (subprocess timeout 180, 2026-11-19) |
+| `diffs/reasoning.py.diff` | `6e044a8bbefd91de1db0baeb78d6e8053da37d4e9dfcea3c96bd032123dd3319` | 162 (cap 400 + wake-prefix normalization + client timeout 150, 2026-11-19) |
 | `diffs/reasoning_suggest.py` | `2ed76f1d686617a0272cf28f8b7fd8bf482dbd13a8b8cee9d0b35ecf354a9678` | 60 (NEW file) |
 
 ## Revision 1 + Claude re-review minors (msg-2ef3cacc, Nov 18)
@@ -72,8 +72,8 @@ cp <revision>/diffs/reasoning_suggest.py ./reasoning_suggest.py
 sha256sum server.py
 # expect: a24b1fd5a4c70ddee018a2960c9dd8c616e0ad0583e1c08aab01d0f1d13f5966
 sha256sum bounded_loop.py reasoning.py reasoning_suggest.py
-# expect: d52213c079afb32bf390831353bfe1f7324a936c84ff8a35c7b808bc6d2e714b
-#         42ffe7b0407e6f381a1865105fe35e02455954cf430fb7150c4ce2b8bd3f8c11
+# expect: 39832bf5d881d20c44e755fd56ff65d52f6038582f91c214ca83455189884260
+#         25767bcf52e688b531a7648c4977466a45c1fbe78fe82648ab1dd57aa8da97dd
 #         2ed76f1d686617a0272cf28f8b7fd8bf482dbd13a8b8cee9d0b35ecf354a9678
 
 # 5. Compile check
@@ -110,7 +110,7 @@ cmp /tmp/rs_regen.py <revision>/work/reasoning_suggest.py
 ```bash
 cd <revision>/tests
 for t in test_p7_*.py; do python3 "$t"; done
-# expect: 32/32 PASS (P7-00..P7-31)
+# expect: 33/33 PASS (P7-00..P7-32)
 ```
 
 The harness (`p7_harness.py`) builds the REV stage from

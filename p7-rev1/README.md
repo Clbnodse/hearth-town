@@ -7,7 +7,7 @@ R1–R6 runner/model boundary) + 2 further defects found by the new tests
 re-review (msg-2ef3cacc, Nov 18) returned APPROVE with two minors —
 M1 record-time allowlist, M2 idempotency body mismatch — both fixed
 here with new tests P7-29/P7-30 + P7-31 (cap 400 + wake-prefix
-normalization, Nov 19). 32/32 tests pass on Muse's independent
+normalization, Nov 19) + P7-32 (timeouts 150/180, Nov 19). 33/33 tests pass on Muse's independent
 re-run. Diffs verified to apply `patch --fuzz=0` to fresh copies of
 the bases below.
 
@@ -27,8 +27,8 @@ APPROVE). Nothing here is a deploy approval.
 | Diff | sha256 | Lines | Applies to |
 |---|---|---|---|
 | `diffs/server.py.diff` | `a0e08893f54644924a244acba20a5601175fd80334228ea018b2a09fe865fc2e` | 1,797 | `base/server.py` |
-| `diffs/bounded_loop.py.diff` | `e5ee95091c9780bf2510e5119ce56c6ab39a7bed781229b639bb04c3e4ba961c` | 667 | `base/bounded_loop.py` |
-| `diffs/reasoning.py.diff` | `d0cf72f98a3ad63b0bfc0b449a1961f7f6594af585ad9c2fca59a3abfa7a77f3` | 160 | `base/reasoning.py` (cap 400 + wake-prefix normalization, 2026-11-19) |
+| `diffs/bounded_loop.py.diff` | `9f95a63208656c0501e4f662a553ece72805a55cd7b77c9408f826cc8a9e6b74` | 667 | `base/bounded_loop.py` (subprocess timeout 180, 2026-11-19) |
+| `diffs/reasoning.py.diff` | `6e044a8bbefd91de1db0baeb78d6e8053da37d4e9dfcea3c96bd032123dd3319` | 162 | `base/reasoning.py` (cap 400 + wake-prefix normalization + client timeout 150, 2026-11-19) |
 | `diffs/reasoning_suggest.py` | `2ed76f1d686617a0272cf28f8b7fd8bf482dbd13a8b8cee9d0b35ecf354a9678` | new file | — |
 
 ## How to use
