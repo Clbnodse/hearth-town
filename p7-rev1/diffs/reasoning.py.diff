@@ -1,5 +1,14 @@
 --- a/reasoning.py
 +++ b/reasoning.py
+@@ -38,7 +38,7 @@
+ OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
+ OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5:1.5b")
+ REASONING_TIMEOUT_S = int(os.environ.get("REASONING_TIMEOUT_S", "90"))
+-REASONING_MAX_TOKENS = int(os.environ.get("REASONING_MAX_TOKENS", "160"))
++REASONING_MAX_TOKENS = int(os.environ.get("REASONING_MAX_TOKENS", "400"))
+ REASONING_MIN_CONFIDENCE = float(os.environ.get("REASONING_MIN_CONFIDENCE", "0.5"))
+ META_API_HELPER = os.path.expanduser(
+     "~/workspace/custom-connectors/custom.meta-model-api/bin/meta_api.py")
 @@ -439,6 +439,58 @@
  )
  
@@ -98,7 +107,38 @@
          # The model sometimes writes the JSON null as the STRING
          # "null" (measured live 2/2 runs, even in "format": "json"
          # mode). That is a formatting quirk, not a citation: no job
-@@ -1180,7 +1237,8 @@
+@@ -1170,6 +1227,30 @@
+             for key in ("chosen_job_id", "declined_job_id"):
+                 if data.get(key) == "null":
+                     data[key] = None
++            # The model reads the wake lines ("- wake <id>: ...") and
++            # cites them as "wake-<id>" in evidence and goals refs
++            # (measured live 2/2 replies at cap 400). The prompt
++            # shows the bare id after the word "wake", so the
++            # prefixed form is the same id in the model's rendering,
++            # not a different citation: strip one leading "wake-"
++            # before validation, exactly like the "null" coercion
++            # above. The stripped id must still be in the shown set
++            # — validation is unchanged, only the spelling is
++            # normalized.
++            ev = data.get("evidence")
++            if isinstance(ev, dict) and isinstance(ev.get("wake_ids"),
++                                                   list):
++                ev["wake_ids"] = [
++                    w[5:] if isinstance(w, str) and
++                    w.startswith("wake-") else w
++                    for w in ev["wake_ids"]]
++            goals = data.get("goals")
++            if isinstance(goals, list):
++                for g in goals:
++                    if isinstance(g, dict) and \
++                            isinstance(g.get("ref"), str) and \
++                            g["ref"].startswith("wake-"):
++                        g["ref"] = g["ref"][5:]
+         # The whole post-parse block is guarded: validation must
+         # return errors, never raise, on any malformed model reply
+         # (audit #4). A crash here would contradict the "never
+@@ -1180,7 +1261,8 @@
                                                t0, tokens)
          except Exception as e:  # defensive: validation must not raise
              return self._fallback(f"validation crashed: {e}",
@@ -108,7 +148,7 @@
  
      def _deliberate_validated(self, data, candidate_ids, wake_ids,
                                memory_seqs, t0, tokens):
-@@ -1188,7 +1246,8 @@
+@@ -1188,7 +1270,8 @@
                                         memory_seqs)
          if errors:
              return self._fallback("validation failed: " + "; ".join(errors),
