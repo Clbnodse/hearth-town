@@ -1,10 +1,12 @@
 --- a/reasoning.py
 +++ b/reasoning.py
-@@ -38,7 +38,7 @@
+@@ -37,8 +37,8 @@
+ 
  OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
  OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5:1.5b")
- REASONING_TIMEOUT_S = int(os.environ.get("REASONING_TIMEOUT_S", "90"))
+-REASONING_TIMEOUT_S = int(os.environ.get("REASONING_TIMEOUT_S", "90"))
 -REASONING_MAX_TOKENS = int(os.environ.get("REASONING_MAX_TOKENS", "160"))
++REASONING_TIMEOUT_S = int(os.environ.get("REASONING_TIMEOUT_S", "150"))
 +REASONING_MAX_TOKENS = int(os.environ.get("REASONING_MAX_TOKENS", "400"))
  REASONING_MIN_CONFIDENCE = float(os.environ.get("REASONING_MIN_CONFIDENCE", "0.5"))
  META_API_HELPER = os.path.expanduser(
