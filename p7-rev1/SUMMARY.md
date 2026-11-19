@@ -47,7 +47,7 @@ code — 0 hits across all four files).
 
 ## Test results
 
-- **Revision suite: 31/31 PASS** (2026-11-18, REV stage, real server/SQLite/subprocesses) — 18 updated v1 tests + 13 new (P7-18…P7-30).
+- **Revision suite: 32/32 PASS** (2026-11-19, REV stage, real server/SQLite/subprocesses) — 18 updated v1 tests + 14 new (P7-18…P7-31).
 - **V1 baseline re-run: 18/18 PASS** against the v1 code — no regression.
 - Five new tests failed on first run; all five fixed (P7-18 was the real S1 reachability bug above; P7-20/21/22/26 were test-side fixes with known remedies).
 - Minors run 2026-11-18 (Claude re-review msg-2ef3cacc): P7-29/P7-30 new; P7-00 fixed (63 paths, REV server); P7-02 drive updated for M1; full suite 31/31 with no regression.
@@ -66,14 +66,14 @@ Under `~/workspace/game-collab-api/priority7/revision/`:
 | `SUMMARY.md` | this file |
 | `diffs/server.py.diff` | 1,797 lines, sha a0e08893… |
 | `diffs/bounded_loop.py.diff` | 667 lines, sha e5ee9509… |
-| `diffs/reasoning.py.diff` | 120 lines, unchanged v1, sha a360c0d2… |
+| `diffs/reasoning.py.diff` | 160 lines, cap 400 + wake-prefix normalization, sha d0cf72f9… |
 | `diffs/reasoning_suggest.py` | new file, hook-free, sha 2ed76f1d… |
 | `build/apply_server_fixes.py` | produces work/server.py from the DRAFT stage server |
 | `build/apply_runner_fixes.py` | produces the runner files from the v1 work files |
 | `work/server.py` etc. | patched files (server sha a24b1fd5…; runner d52213c0…; suggest 2ed76f1d…) |
 | `work/stage-v17-game-api42-REV/` | REV stage used by the tests |
 | `work/audit_messages_fresh.json` | Claude's three audit messages, fresh from the board |
-| `tests/p7_harness.py` + `test_p7_*.py` | 31 tests |
+| `tests/p7_harness.py` + `test_p7_*.py` | 32 tests |
 | `tests/fake_reasoning_suggest.py` | test-only fake model (never shipped) |
 
 ## What was NOT verified

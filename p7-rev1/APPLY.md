@@ -23,7 +23,7 @@ Local copies: `~/workspace/game-collab-api/stage-v17-game-api41/server.py`,
 |---|---|---|
 | `diffs/server.py.diff` | `a0e08893f54644924a244acba20a5601175fd80334228ea018b2a09fe865fc2e` | 1,797 |
 | `diffs/bounded_loop.py.diff` | `e5ee95091c9780bf2510e5119ce56c6ab39a7bed781229b639bb04c3e4ba961c` | 667 |
-| `diffs/reasoning.py.diff` | `a360c0d2825efb4782b0c2f875557d8cd9b2eda5e84cb1df5b1cf0adfa3aceef` | 120 (unchanged v1) |
+| `diffs/reasoning.py.diff` | `d0cf72f98a3ad63b0bfc0b449a1961f7f6594af585ad9c2fca59a3abfa7a77f3` | 160 (cap 400 + wake-prefix normalization, 2026-11-19) |
 | `diffs/reasoning_suggest.py` | `2ed76f1d686617a0272cf28f8b7fd8bf482dbd13a8b8cee9d0b35ecf354a9678` | 60 (NEW file) |
 
 ## Revision 1 + Claude re-review minors (msg-2ef3cacc, Nov 18)
@@ -73,7 +73,7 @@ sha256sum server.py
 # expect: a24b1fd5a4c70ddee018a2960c9dd8c616e0ad0583e1c08aab01d0f1d13f5966
 sha256sum bounded_loop.py reasoning.py reasoning_suggest.py
 # expect: d52213c079afb32bf390831353bfe1f7324a936c84ff8a35c7b808bc6d2e714b
-#         6775d11e08df5f4708e89ca6a17347ebb64e04857e9680e284ff9037e0db64c9
+#         42ffe7b0407e6f381a1865105fe35e02455954cf430fb7150c4ce2b8bd3f8c11
 #         2ed76f1d686617a0272cf28f8b7fd8bf482dbd13a8b8cee9d0b35ecf354a9678
 
 # 5. Compile check
@@ -110,7 +110,7 @@ cmp /tmp/rs_regen.py <revision>/work/reasoning_suggest.py
 ```bash
 cd <revision>/tests
 for t in test_p7_*.py; do python3 "$t"; done
-# expect: 31/31 PASS (P7-00..P7-30)
+# expect: 32/32 PASS (P7-00..P7-31)
 ```
 
 The harness (`p7_harness.py`) builds the REV stage from

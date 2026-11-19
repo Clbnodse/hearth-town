@@ -2,7 +2,7 @@
 
 Every Claude gap (12), every ChatGPT contract acceptance test (12), every
 Grok acceptance item (8), every matrix test (14), and every Claude audit
-finding (S1–S9, R1–R6) → concrete test file + expected output. All 31 tests
+finding (S1–S9, R1–R6) → concrete test file + expected output. All 32 tests
 pass; commands are run from
 `~/workspace/game-collab-api/priority7/revision/tests/` as
 `python3 test_p7_XX_<name>.py`. All tests run against the real server, real
@@ -51,7 +51,7 @@ Unchanged from v1 (P7-04, P7-05, P7-06, P7-07, P7-11, P7-12, P7-10, P7-00 all pa
 
 ## D. ChatGPT 14-test matrix (msg-23742ec0) → files (revision)
 
-Same 14 files as v1, updated as described in §A. Extra v1 tests: P7-00, P7-15, P7-16, P7-17. New in rev1: P7-18…P7-28 (see §G) + P7-29/P7-30 (see §H).
+Same 14 files as v1, updated as described in §A. Extra v1 tests: P7-00, P7-15, P7-16, P7-17. New in rev1: P7-18…P7-28 (see §G) + P7-29/P7-30 (see §H) + P7-31 (see §I).
 
 ## E. Gaps — enforced in code, no dedicated test (NOT claimed as passing)
 
@@ -97,7 +97,11 @@ test_p7_27_no_hooks_in_production: PASS
 test_p7_28_kill_switch_scope: PASS
 test_p7_29_record_allowlist: PASS
 test_p7_30_idempotency_mismatch: PASS
+test_p7_31_wake_prefix: PASS
 ```
+
+Addendum 2026-11-19: P7-31 added (owner-approved cap 400 + wake-prefix
+normalization). Full re-run this session: **32/32 PASS** (P7-00…P7-31).
 
 V1 baseline re-run against the v1 code (same session): **18/18 PASS** — no regression in the baseline record.
 
@@ -109,6 +113,12 @@ Diff verification: `patch --fuzz=0 -p1` applies all three rev1 diffs cleanly to 
 |---|---|---|---|
 | M1 record-time allowlist: out-of-allowlist kind refused at append (400 `event_kind_not_in_allowlist`) | P7-29 | `test_p7_29_record_allowlist.py` | `P7-29 record-time allowlist: PASS` (+ goal/plan/action with kind send_money on a claim_job run → 400; goal None → 201; rejected kinds absent from GET events) |
 | M2 idempotency body mismatch: replay with a different body is 409 | P7-30 | `test_p7_30_idempotency_mismatch.py` | `P7-30 idempotency body mismatch: PASS` (+ same-body replay → 200, no token re-issue; mode/allowlist/max_steps variants → 409; original run untouched; fresh live key on a default-policy resident → 403 live_not_enabled) |
+
+## I. Owner-approved cap raise (Nov 19) → new test
+
+| Change | Test | File | Result |
+|---|---|---|---|
+| REASONING_MAX_TOKENS 160→400; `wake-` prefixed evidence/goals refs for a shown wake id normalize to the bare id before validation (same defensive-parsing category as the `"null"` coercion); an unseen prefixed id is still rejected | P7-31 | `test_p7_31_wake_prefix.py` | `P7-31 PASS (4/4)` (+ cap pinned at 400; prefixed shown id validates + normalizes; prefixed unseen id still rejected model_error; bare shown id still validates) |
 
 ## G. Claude's audit findings (msg-eb3b9012 + msg-031a2cb8) → new tests
 

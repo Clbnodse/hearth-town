@@ -6,7 +6,8 @@ R1–R6 runner/model boundary) + 2 further defects found by the new tests
 (unreachable muse reconcile, adapter-units clamp-not-reject). Claude's
 re-review (msg-2ef3cacc, Nov 18) returned APPROVE with two minors —
 M1 record-time allowlist, M2 idempotency body mismatch — both fixed
-here with new tests P7-29/P7-30. 31/31 tests pass on Muse's independent
+here with new tests P7-29/P7-30 + P7-31 (cap 400 + wake-prefix
+normalization, Nov 19). 32/32 tests pass on Muse's independent
 re-run. Diffs verified to apply `patch --fuzz=0` to fresh copies of
 the bases below.
 
@@ -27,7 +28,7 @@ APPROVE). Nothing here is a deploy approval.
 |---|---|---|---|
 | `diffs/server.py.diff` | `a0e08893f54644924a244acba20a5601175fd80334228ea018b2a09fe865fc2e` | 1,797 | `base/server.py` |
 | `diffs/bounded_loop.py.diff` | `e5ee95091c9780bf2510e5119ce56c6ab39a7bed781229b639bb04c3e4ba961c` | 667 | `base/bounded_loop.py` |
-| `diffs/reasoning.py.diff` | `a360c0d2825efb4782b0c2f875557d8cd9b2eda5e84cb1df5b1cf0adfa3aceef` | 120 | `base/reasoning.py` (unchanged from v1) |
+| `diffs/reasoning.py.diff` | `d0cf72f98a3ad63b0bfc0b449a1961f7f6594af585ad9c2fca59a3abfa7a77f3` | 160 | `base/reasoning.py` (cap 400 + wake-prefix normalization, 2026-11-19) |
 | `diffs/reasoning_suggest.py` | `2ed76f1d686617a0272cf28f8b7fd8bf482dbd13a8b8cee9d0b35ecf354a9678` | new file | — |
 
 ## How to use
