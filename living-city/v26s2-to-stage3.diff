@@ -1,0 +1,22 @@
+--- hearth-3d-game-v2-v26s2.html
++++ hearth-3d-game-v2-v26s2s3.html
+@@ -285,6 +285,10 @@
+  {x:30,z:64,label:'Café',c:0x7a8a4a,roof:0x4a3a20,roofType:'shop',w:10,h:8,d:8},
+  {x:-32,z:84,label:'Workshop',c:0x5a7a9a,roof:0x334155,roofType:'shop',w:10,h:8,d:8},
+  {x:32,z:86,label:'General Store',c:0x9a6a2a,roof:0x5b2d16,roofType:'shop',w:10,h:8,d:8},
++ // STAGE 3 — Living City Civic / learning west (prop-36ee3e9f): Library (gable), Academy (flat), Maker Space (dome)
++ {x:-70,z:-28,label:'Library',c:0x8a6a4a,roof:0x4a3a20,roofType:'gable',w:12,h:9,d:9},
++ {x:-70,z:28,label:'Academy',c:0x6a7a8a,roof:0x334155,roofType:'flat',w:12,h:9,d:9},
++ {x:-88,z:32,label:'Maker Space',c:0x7a5a3a,roof:0x5b2d16,roofType:'dome',w:10,h:7,d:8},
+ ];
+ function houseSign(text,x,y,z){
+   const c=document.createElement('canvas'); c.width=256; c.height=64; const g=c.getContext('2d');
+@@ -363,7 +367,7 @@
+     const disc=new THREE.Mesh(new THREE.CylinderGeometry(0.8,0.8,0.15,16),win); disc.rotation.x=Math.PI/2; disc.position.set(h.x,3.4,front+0.05); scene.add(disc);
+     box(1.2,3,1.2,0x78716c,h.x-3.6,top+1.5,h.z-1);
+   }
+-  houseSign(h.label,h.x,5.2,h.roofType==='hall'?front+0.15:h.z+4.15); // STAGE 1: hall sign on its front face (d=10)
++  houseSign(h.label,h.x,5.2,front+0.15); // STAGE 3 FIX: sign on the front face for every depth (d=9 Library/Academy were buried at fixed z+4.15)
+ });
+ // Hearth fire, center-back (0,-14)
+ let flameMesh;
