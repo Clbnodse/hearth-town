@@ -1,0 +1,595 @@
+{
+ "houses": {
+  "Porch": {
+   "centre": [
+    30,
+    0
+   ],
+   "w": 10,
+   "h": 4,
+   "d": 8,
+   "roofType": "porch",
+   "meshes": 18,
+   "kinds": {
+    "BoxGeometry": 8,
+    "PlaneGeometry": 9,
+    "ConeGeometry": 1
+   }
+  },
+  "Cloudwatch": {
+   "centre": [
+    -30,
+    -24
+   ],
+   "w": 8,
+   "h": 6,
+   "d": 8,
+   "roofType": "gable",
+   "meshes": 18,
+   "kinds": {
+    "BoxGeometry": 8,
+    "PlaneGeometry": 9,
+    "CylinderGeometry": 1
+   }
+  },
+  "Lucky Corner": {
+   "centre": [
+    -30,
+    24
+   ],
+   "w": 7,
+   "h": 8,
+   "d": 7,
+   "roofType": "tower",
+   "meshes": 18,
+   "kinds": {
+    "BoxGeometry": 5,
+    "PlaneGeometry": 9,
+    "ConeGeometry": 2,
+    "CylinderGeometry": 2
+   }
+  },
+  "Press Office": {
+   "centre": [
+    -14,
+    34
+   ],
+   "w": 10,
+   "h": 8,
+   "d": 8,
+   "roofType": "flat",
+   "meshes": 28,
+   "kinds": {
+    "BoxGeometry": 11,
+    "PlaneGeometry": 17
+   }
+  },
+  "Hearthside": {
+   "centre": [
+    -34,
+    -6
+   ],
+   "w": 10,
+   "h": 5,
+   "d": 8,
+   "roofType": "dome",
+   "meshes": 16,
+   "kinds": {
+    "BoxGeometry": 5,
+    "PlaneGeometry": 9,
+    "SphereGeometry": 1,
+    "CylinderGeometry": 1
+   }
+  },
+  "Hearth Hall": {
+   "centre": [
+    0,
+    -38
+   ],
+   "w": 18,
+   "h": 10,
+   "d": 10,
+   "roofType": "hall",
+   "meshes": 32,
+   "kinds": {
+    "CylinderGeometry": 3,
+    "PlaneGeometry": 19,
+    "BoxGeometry": 9,
+    "ConeGeometry": 1
+   }
+  },
+  "Ziri's CRT Nook": {
+   "centre": [
+    38,
+    28
+   ],
+   "w": 8,
+   "h": 5,
+   "d": 8,
+   "roofType": "gable",
+   "meshes": 18,
+   "kinds": {
+    "BoxGeometry": 8,
+    "PlaneGeometry": 9,
+    "CylinderGeometry": 1
+   }
+  },
+  "Growth A": {
+   "centre": [
+    38,
+    -28
+   ],
+   "w": 8,
+   "h": 5,
+   "d": 8,
+   "roofType": "porch",
+   "meshes": 18,
+   "kinds": {
+    "BoxGeometry": 8,
+    "PlaneGeometry": 9,
+    "ConeGeometry": 1
+   }
+  },
+  "Claude's Study": {
+   "centre": [
+    -40,
+    -42
+   ],
+   "w": 8,
+   "h": 5,
+   "d": 8,
+   "roofType": "gable",
+   "meshes": 18,
+   "kinds": {
+    "BoxGeometry": 8,
+    "PlaneGeometry": 9,
+    "CylinderGeometry": 1
+   }
+  },
+  "ChatGPT Workshop": {
+   "centre": [
+    26,
+    -43
+   ],
+   "w": 8,
+   "h": 5,
+   "d": 8,
+   "roofType": "porch",
+   "meshes": 18,
+   "kinds": {
+    "BoxGeometry": 8,
+    "PlaneGeometry": 9,
+    "ConeGeometry": 1
+   }
+  },
+  "Grok's Lab": {
+   "centre": [
+    19,
+    37
+   ],
+   "w": 8,
+   "h": 6,
+   "d": 8,
+   "roofType": "flat",
+   "meshes": 28,
+   "kinds": {
+    "BoxGeometry": 11,
+    "PlaneGeometry": 17
+   }
+  },
+  "Meta AI Lodge": {
+   "centre": [
+    30,
+    50
+   ],
+   "w": 8,
+   "h": 5,
+   "d": 8,
+   "roofType": "gable",
+   "meshes": 18,
+   "kinds": {
+    "BoxGeometry": 8,
+    "PlaneGeometry": 9,
+    "CylinderGeometry": 1
+   }
+  },
+  "Bakery": {
+   "centre": [
+    -30,
+    62
+   ],
+   "w": 10,
+   "h": 8,
+   "d": 8,
+   "roofType": "shop",
+   "meshes": 31,
+   "kinds": {
+    "BoxGeometry": 13,
+    "PlaneGeometry": 17,
+    "ConeGeometry": 1
+   }
+  },
+  "Café": {
+   "centre": [
+    30,
+    64
+   ],
+   "w": 10,
+   "h": 8,
+   "d": 8,
+   "roofType": "shop",
+   "meshes": 31,
+   "kinds": {
+    "BoxGeometry": 13,
+    "PlaneGeometry": 17,
+    "ConeGeometry": 1
+   }
+  },
+  "Workshop": {
+   "centre": [
+    -32,
+    84
+   ],
+   "w": 10,
+   "h": 8,
+   "d": 8,
+   "roofType": "shop",
+   "meshes": 30,
+   "kinds": {
+    "BoxGeometry": 13,
+    "PlaneGeometry": 17
+   }
+  },
+  "General Store": {
+   "centre": [
+    32,
+    86
+   ],
+   "w": 10,
+   "h": 8,
+   "d": 8,
+   "roofType": "shop",
+   "meshes": 30,
+   "kinds": {
+    "BoxGeometry": 13,
+    "PlaneGeometry": 17
+   }
+  },
+  "Library": {
+   "centre": [
+    -70,
+    -28
+   ],
+   "w": 12,
+   "h": 9,
+   "d": 9,
+   "roofType": "gable",
+   "meshes": 18,
+   "kinds": {
+    "BoxGeometry": 8,
+    "PlaneGeometry": 9,
+    "CylinderGeometry": 1
+   }
+  },
+  "Academy": {
+   "centre": [
+    -70,
+    28
+   ],
+   "w": 12,
+   "h": 9,
+   "d": 9,
+   "roofType": "flat",
+   "meshes": 28,
+   "kinds": {
+    "BoxGeometry": 11,
+    "PlaneGeometry": 17
+   }
+  },
+  "Maker Space": {
+   "centre": [
+    -88,
+    32
+   ],
+   "w": 10,
+   "h": 7,
+   "d": 8,
+   "roofType": "dome",
+   "meshes": 16,
+   "kinds": {
+    "BoxGeometry": 5,
+    "PlaneGeometry": 9,
+    "SphereGeometry": 1,
+    "CylinderGeometry": 1
+   }
+  }
+ },
+ "newBuildingsRect": {
+  "Library": {
+   "meshes": 18,
+   "sprites": 0
+  },
+  "Academy": {
+   "meshes": 28,
+   "sprites": 0
+  },
+  "Maker Space": {
+   "meshes": 16,
+   "sprites": 0
+  }
+ },
+ "kitPoints": {},
+ "totalMeshes": 971,
+ "totalSprites": 42,
+ "totalObjects": 1031,
+ "distinctMaterials": 964,
+ "lights": 3,
+ "cameraOccluders": 74,
+ "trees": [
+  [
+   12.4123,
+   -70.6685,
+   0.514
+  ],
+  [
+   10.5987,
+   -94.8558,
+   0.558
+  ],
+  [
+   14.3569,
+   -83.5593,
+   0.451
+  ],
+  [
+   -26.1842,
+   -90.911,
+   0.651
+  ],
+  [
+   16.5819,
+   -88.9637,
+   0.625
+  ],
+  [
+   19.1535,
+   -71.821,
+   0.616
+  ],
+  [
+   23.5117,
+   -66.7274,
+   0.58
+  ],
+  [
+   6.3897,
+   -68.1817,
+   0.612
+  ],
+  [
+   -23.2841,
+   -87.5651,
+   0.648
+  ],
+  [
+   29.7045,
+   -89.5396,
+   0.618
+  ],
+  [
+   -31.0929,
+   -76.4636,
+   0.684
+  ],
+  [
+   18.5067,
+   -72.8105,
+   0.527
+  ],
+  [
+   -17.6546,
+   -72.8889,
+   0.558
+  ],
+  [
+   33.498,
+   -90.4768,
+   0.649
+  ],
+  [
+   75.9634,
+   -2.8538,
+   0.451
+  ],
+  [
+   95.9854,
+   -13.0909,
+   0.618
+  ],
+  [
+   62.9156,
+   -7.2852,
+   0.483
+  ],
+  [
+   73.8489,
+   0.1799,
+   0.53
+  ],
+  [
+   -99.1892,
+   -1.9479,
+   0.533
+  ],
+  [
+   -92.6052,
+   -16.4819,
+   0.58
+  ],
+  [
+   -83.0805,
+   22.4062,
+   0.57
+  ],
+  [
+   -94.5681,
+   -11.5279,
+   0.602
+  ],
+  [
+   1.4319,
+   66.9314,
+   0.481
+  ],
+  [
+   8.0089,
+   52.2213,
+   0.505
+  ],
+  [
+   3.5699,
+   51.8425,
+   0.672
+  ],
+  [
+   -42,
+   -8,
+   0.595
+  ],
+  [
+   42,
+   -8,
+   0.655
+  ],
+  [
+   -42,
+   8,
+   0.624
+  ],
+  [
+   42,
+   8,
+   0.458
+  ],
+  [
+   0,
+   34,
+   0.625
+  ]
+ ],
+ "bushes": [
+  [
+   95.2555,
+   77.2551,
+   1.13
+  ],
+  [
+   -21.6073,
+   68.7953,
+   0.889
+  ],
+  [
+   -100.6157,
+   -20.3692,
+   0.979
+  ],
+  [
+   96.2235,
+   85.5092,
+   0.722
+  ],
+  [
+   -72.2633,
+   71.1438,
+   0.906
+  ],
+  [
+   99.9339,
+   37.7654,
+   1.394
+  ],
+  [
+   62.4266,
+   -8.597,
+   1.169
+  ],
+  [
+   86.9581,
+   -38.1527,
+   1.248
+  ],
+  [
+   13.1452,
+   -79.1873,
+   1.337
+  ],
+  [
+   53.9416,
+   -90.3491,
+   1.159
+  ],
+  [
+   -46.6129,
+   57.1387,
+   1.211
+  ]
+ ],
+ "boulders": [
+  [
+   99.2686,
+   2.2313,
+   1.032
+  ],
+  [
+   -65.5789,
+   -72.1873,
+   0.635
+  ],
+  [
+   89.9107,
+   52.7833,
+   0.662
+  ],
+  [
+   -38.8984,
+   63.7763,
+   0.965
+  ],
+  [
+   43.3876,
+   35.1276,
+   0.619
+  ],
+  [
+   72.5434,
+   57.2913,
+   0.959
+  ],
+  [
+   -60.3931,
+   -66.4771,
+   0.551
+  ],
+  [
+   -56.1554,
+   -31.1985,
+   0.787
+  ],
+  [
+   -1.1852,
+   -83.4198,
+   0.695
+  ],
+  [
+   27.5347,
+   72.534,
+   0.612
+  ],
+  [
+   -100.781,
+   -48.3387,
+   0.969
+  ]
+ ],
+ "hallMaxTopY": 17.8
+}
