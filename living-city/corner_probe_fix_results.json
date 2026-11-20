@@ -1,0 +1,537 @@
+{
+ "file_sha": "cfc824dd478a1c08a15eaf5ecc275abb452e6c8dc92020be5fefa1ddb2af44b9",
+ "discs_total": 33,
+ "houses": {
+  "Porch": {
+   "x": 30.0,
+   "z": 0.0,
+   "w": 10.0,
+   "d": 8.0,
+   "h": 4.0,
+   "roof": "porch",
+   "discs": [
+    [
+     27.0,
+     0.0
+    ],
+    [
+     33.0,
+     0.0
+    ]
+   ],
+   "corner_dist": 4.47,
+   "corner_clip": -1.53,
+   "bfs_in_body_rect": false,
+   "deepest_in_body": 0.0,
+   "bfs_in_audit_rect": false,
+   "deepest_in_audit": 0.0,
+   "door_reachable_within_8u": 0.0,
+   "centre_cell_walkable": false,
+   "nearest_reachable_to_centre_within_8u": 5.5
+  },
+  "Cloudwatch": {
+   "x": -30.0,
+   "z": -24.0,
+   "w": 8.0,
+   "d": 8.0,
+   "h": 6.0,
+   "roof": "gable",
+   "discs": [
+    [
+     -30.0,
+     -24.0
+    ]
+   ],
+   "corner_dist": 5.66,
+   "corner_clip": -0.34,
+   "bfs_in_body_rect": false,
+   "deepest_in_body": 0.0,
+   "bfs_in_audit_rect": true,
+   "deepest_in_audit": 0.0,
+   "door_reachable_within_8u": 0.0,
+   "centre_cell_walkable": false,
+   "nearest_reachable_to_centre_within_8u": 6.0
+  },
+  "Lucky Corner": {
+   "x": -30.0,
+   "z": 24.0,
+   "w": 7.0,
+   "d": 7.0,
+   "h": 8.0,
+   "roof": "tower",
+   "discs": [
+    [
+     -30.0,
+     24.0
+    ]
+   ],
+   "corner_dist": 4.95,
+   "corner_clip": -1.05,
+   "bfs_in_body_rect": false,
+   "deepest_in_body": 0.0,
+   "bfs_in_audit_rect": false,
+   "deepest_in_audit": 0.0,
+   "door_reachable_within_8u": 0.5,
+   "centre_cell_walkable": false,
+   "nearest_reachable_to_centre_within_8u": 6.0
+  },
+  "Press Office": {
+   "x": -14.0,
+   "z": 34.0,
+   "w": 10.0,
+   "d": 8.0,
+   "h": 8.0,
+   "roof": "flat",
+   "discs": [
+    [
+     -17.0,
+     34.0
+    ],
+    [
+     -11.0,
+     34.0
+    ]
+   ],
+   "corner_dist": 4.47,
+   "corner_clip": -1.53,
+   "bfs_in_body_rect": false,
+   "deepest_in_body": 0.0,
+   "bfs_in_audit_rect": false,
+   "deepest_in_audit": 0.0,
+   "door_reachable_within_8u": 0.0,
+   "centre_cell_walkable": false,
+   "nearest_reachable_to_centre_within_8u": 5.5
+  },
+  "Hearthside": {
+   "x": -34.0,
+   "z": -6.0,
+   "w": 10.0,
+   "d": 8.0,
+   "h": 5.0,
+   "roof": "dome",
+   "discs": [
+    [
+     -37.0,
+     -6.0
+    ],
+    [
+     -31.0,
+     -6.0
+    ]
+   ],
+   "corner_dist": 4.47,
+   "corner_clip": -1.53,
+   "bfs_in_body_rect": false,
+   "deepest_in_body": 0.0,
+   "bfs_in_audit_rect": false,
+   "deepest_in_audit": 0.0,
+   "door_reachable_within_8u": 0.0,
+   "centre_cell_walkable": false,
+   "nearest_reachable_to_centre_within_8u": 5.5
+  },
+  "Hearth Hall": {
+   "x": 0.0,
+   "z": -38.0,
+   "w": 18.0,
+   "d": 10.0,
+   "h": 10.0,
+   "roof": "hall",
+   "discs": [
+    [
+     -6.0,
+     -38.0
+    ],
+    [
+     0.0,
+     -38.0
+    ],
+    [
+     6.0,
+     -38.0
+    ]
+   ],
+   "corner_dist": 5.83,
+   "corner_clip": -0.17,
+   "bfs_in_body_rect": false,
+   "deepest_in_body": 0.0,
+   "bfs_in_audit_rect": true,
+   "deepest_in_audit": 0.3,
+   "door_reachable_within_8u": 0.0,
+   "centre_cell_walkable": false,
+   "nearest_reachable_to_centre_within_8u": 6.0
+  },
+  "Ziri's CRT Nook": {
+   "x": 38.0,
+   "z": 28.0,
+   "w": 8.0,
+   "d": 8.0,
+   "h": 5.0,
+   "roof": "gable",
+   "discs": [
+    [
+     38.0,
+     28.0
+    ]
+   ],
+   "corner_dist": 5.66,
+   "corner_clip": -0.34,
+   "bfs_in_body_rect": false,
+   "deepest_in_body": 0.0,
+   "bfs_in_audit_rect": true,
+   "deepest_in_audit": 0.0,
+   "door_reachable_within_8u": 0.0,
+   "centre_cell_walkable": false,
+   "nearest_reachable_to_centre_within_8u": 6.0
+  },
+  "Growth A": {
+   "x": 38.0,
+   "z": -28.0,
+   "w": 8.0,
+   "d": 8.0,
+   "h": 5.0,
+   "roof": "porch",
+   "discs": [
+    [
+     38.0,
+     -28.0
+    ]
+   ],
+   "corner_dist": 5.66,
+   "corner_clip": -0.34,
+   "bfs_in_body_rect": false,
+   "deepest_in_body": 0.0,
+   "bfs_in_audit_rect": true,
+   "deepest_in_audit": 0.0,
+   "door_reachable_within_8u": 0.0,
+   "centre_cell_walkable": false,
+   "nearest_reachable_to_centre_within_8u": 6.0
+  },
+  "Claude's Study": {
+   "x": -40.0,
+   "z": -42.0,
+   "w": 8.0,
+   "d": 8.0,
+   "h": 5.0,
+   "roof": "gable",
+   "discs": [
+    [
+     -40.0,
+     -42.0
+    ]
+   ],
+   "corner_dist": 5.66,
+   "corner_clip": -0.34,
+   "bfs_in_body_rect": false,
+   "deepest_in_body": 0.0,
+   "bfs_in_audit_rect": true,
+   "deepest_in_audit": 0.0,
+   "door_reachable_within_8u": 0.0,
+   "centre_cell_walkable": false,
+   "nearest_reachable_to_centre_within_8u": 6.0
+  },
+  "ChatGPT Workshop": {
+   "x": 26.0,
+   "z": -43.0,
+   "w": 8.0,
+   "d": 8.0,
+   "h": 5.0,
+   "roof": "porch",
+   "discs": [
+    [
+     26.0,
+     -43.0
+    ]
+   ],
+   "corner_dist": 5.66,
+   "corner_clip": -0.34,
+   "bfs_in_body_rect": false,
+   "deepest_in_body": 0.0,
+   "bfs_in_audit_rect": true,
+   "deepest_in_audit": 0.0,
+   "door_reachable_within_8u": 0.0,
+   "centre_cell_walkable": false,
+   "nearest_reachable_to_centre_within_8u": 6.0
+  },
+  "Grok's Lab": {
+   "x": 19.0,
+   "z": 37.0,
+   "w": 8.0,
+   "d": 8.0,
+   "h": 6.0,
+   "roof": "flat",
+   "discs": [
+    [
+     19.0,
+     37.0
+    ]
+   ],
+   "corner_dist": 5.66,
+   "corner_clip": -0.34,
+   "bfs_in_body_rect": false,
+   "deepest_in_body": 0.0,
+   "bfs_in_audit_rect": true,
+   "deepest_in_audit": 0.0,
+   "door_reachable_within_8u": 0.0,
+   "centre_cell_walkable": false,
+   "nearest_reachable_to_centre_within_8u": 6.0
+  },
+  "Meta AI Lodge": {
+   "x": 30.0,
+   "z": 50.0,
+   "w": 8.0,
+   "d": 8.0,
+   "h": 5.0,
+   "roof": "gable",
+   "discs": [
+    [
+     30.0,
+     50.0
+    ]
+   ],
+   "corner_dist": 5.66,
+   "corner_clip": -0.34,
+   "bfs_in_body_rect": false,
+   "deepest_in_body": 0.0,
+   "bfs_in_audit_rect": true,
+   "deepest_in_audit": 0.0,
+   "door_reachable_within_8u": 0.0,
+   "centre_cell_walkable": false,
+   "nearest_reachable_to_centre_within_8u": 6.0
+  },
+  "Bakery": {
+   "x": -30.0,
+   "z": 62.0,
+   "w": 10.0,
+   "d": 8.0,
+   "h": 8.0,
+   "roof": "shop",
+   "discs": [
+    [
+     -33.0,
+     62.0
+    ],
+    [
+     -27.0,
+     62.0
+    ]
+   ],
+   "corner_dist": 4.47,
+   "corner_clip": -1.53,
+   "bfs_in_body_rect": false,
+   "deepest_in_body": 0.0,
+   "bfs_in_audit_rect": false,
+   "deepest_in_audit": 0.0,
+   "door_reachable_within_8u": 0.0,
+   "centre_cell_walkable": false,
+   "nearest_reachable_to_centre_within_8u": 5.5
+  },
+  "Caf\u00e9": {
+   "x": 30.0,
+   "z": 64.0,
+   "w": 10.0,
+   "d": 8.0,
+   "h": 8.0,
+   "roof": "shop",
+   "discs": [
+    [
+     27.0,
+     64.0
+    ],
+    [
+     33.0,
+     64.0
+    ]
+   ],
+   "corner_dist": 4.47,
+   "corner_clip": -1.53,
+   "bfs_in_body_rect": false,
+   "deepest_in_body": 0.0,
+   "bfs_in_audit_rect": false,
+   "deepest_in_audit": 0.0,
+   "door_reachable_within_8u": 0.0,
+   "centre_cell_walkable": false,
+   "nearest_reachable_to_centre_within_8u": 5.5
+  },
+  "Workshop": {
+   "x": -32.0,
+   "z": 84.0,
+   "w": 10.0,
+   "d": 8.0,
+   "h": 8.0,
+   "roof": "shop",
+   "discs": [
+    [
+     -35.0,
+     84.0
+    ],
+    [
+     -29.0,
+     84.0
+    ]
+   ],
+   "corner_dist": 4.47,
+   "corner_clip": -1.53,
+   "bfs_in_body_rect": false,
+   "deepest_in_body": 0.0,
+   "bfs_in_audit_rect": false,
+   "deepest_in_audit": 0.0,
+   "door_reachable_within_8u": 0.0,
+   "centre_cell_walkable": false,
+   "nearest_reachable_to_centre_within_8u": 5.5
+  },
+  "General Store": {
+   "x": 32.0,
+   "z": 86.0,
+   "w": 10.0,
+   "d": 8.0,
+   "h": 8.0,
+   "roof": "shop",
+   "discs": [
+    [
+     29.0,
+     86.0
+    ],
+    [
+     35.0,
+     86.0
+    ]
+   ],
+   "corner_dist": 4.47,
+   "corner_clip": -1.53,
+   "bfs_in_body_rect": false,
+   "deepest_in_body": 0.0,
+   "bfs_in_audit_rect": false,
+   "deepest_in_audit": 0.0,
+   "door_reachable_within_8u": 0.0,
+   "centre_cell_walkable": false,
+   "nearest_reachable_to_centre_within_8u": 5.5
+  },
+  "Library": {
+   "x": -70.0,
+   "z": -28.0,
+   "w": 12.0,
+   "d": 9.0,
+   "h": 9.0,
+   "roof": "gable",
+   "discs": [
+    [
+     -73.0,
+     -28.0
+    ],
+    [
+     -67.0,
+     -28.0
+    ]
+   ],
+   "corner_dist": 5.41,
+   "corner_clip": -0.59,
+   "bfs_in_body_rect": false,
+   "deepest_in_body": 0.0,
+   "bfs_in_audit_rect": false,
+   "deepest_in_audit": 0.0,
+   "door_reachable_within_8u": 0.0,
+   "centre_cell_walkable": false,
+   "nearest_reachable_to_centre_within_8u": 5.5
+  },
+  "Academy": {
+   "x": -70.0,
+   "z": 28.0,
+   "w": 12.0,
+   "d": 9.0,
+   "h": 9.0,
+   "roof": "flat",
+   "discs": [
+    [
+     -73.0,
+     28.0
+    ],
+    [
+     -67.0,
+     28.0
+    ]
+   ],
+   "corner_dist": 5.41,
+   "corner_clip": -0.59,
+   "bfs_in_body_rect": false,
+   "deepest_in_body": 0.0,
+   "bfs_in_audit_rect": false,
+   "deepest_in_audit": 0.0,
+   "door_reachable_within_8u": 0.0,
+   "centre_cell_walkable": false,
+   "nearest_reachable_to_centre_within_8u": 5.5
+  },
+  "Maker Space": {
+   "x": -88.0,
+   "z": 32.0,
+   "w": 10.0,
+   "d": 8.0,
+   "h": 7.0,
+   "roof": "dome",
+   "discs": [
+    [
+     -91.0,
+     32.0
+    ],
+    [
+     -85.0,
+     32.0
+    ]
+   ],
+   "corner_dist": 4.47,
+   "corner_clip": -1.53,
+   "bfs_in_body_rect": false,
+   "deepest_in_body": 0.0,
+   "bfs_in_audit_rect": false,
+   "deepest_in_audit": 0.0,
+   "door_reachable_within_8u": 0.0,
+   "centre_cell_walkable": false,
+   "nearest_reachable_to_centre_within_8u": 5.5
+  },
+  "Growth B": {
+   "x": -38.0,
+   "z": 38.0,
+   "w": 8.0,
+   "d": 8.0,
+   "h": 5.0,
+   "roof": "gable",
+   "discs": [
+    [
+     -38.0,
+     38.0
+    ]
+   ],
+   "corner_dist": 5.66,
+   "corner_clip": -0.34,
+   "bfs_in_body_rect": false,
+   "deepest_in_body": 0.0,
+   "bfs_in_audit_rect": true,
+   "deepest_in_audit": 0.0,
+   "door_reachable_within_8u": 0.0,
+   "centre_cell_walkable": false,
+   "nearest_reachable_to_centre_within_8u": 6.0
+  },
+  "Growth C": {
+   "x": 52.0,
+   "z": -28.0,
+   "w": 8.0,
+   "d": 8.0,
+   "h": 5.0,
+   "roof": "porch",
+   "discs": [
+    [
+     52.0,
+     -28.0
+    ]
+   ],
+   "corner_dist": 5.66,
+   "corner_clip": -0.34,
+   "bfs_in_body_rect": false,
+   "deepest_in_body": 0.0,
+   "bfs_in_audit_rect": true,
+   "deepest_in_audit": 0.0,
+   "door_reachable_within_8u": 0.0,
+   "centre_cell_walkable": false,
+   "nearest_reachable_to_centre_within_8u": 6.0
+  }
+ }
+}

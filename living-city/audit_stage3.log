@@ -1,0 +1,139 @@
+=== Stage 3 Civic / learning (west) audit — hearth-3d-game-v2-v26s2s3.html ===
+file: 83548 bytes, sha 36941466d2c5...
+counts: 971 meshes + 42 sprites = 1013 draw calls; materials 964; lights 3; occluders 74; trees 30; bushes 11; boulders 11
+
+parsed houses[]: 19 entries; stalls[]: 4 entries
+  houses: Porch@(30,0), Cloudwatch@(-30,-24), Lucky Corner@(-30,24), Press Office@(-14,34), Hearthside@(-34,-6), Hearth Hall@(0,-38), Ziri's CRT Nook@(38,28), Growth A@(38,-28), Claude's Study@(-40,-42), ChatGPT Workshop@(26,-43), Grok's Lab@(19,37), Meta AI Lodge@(30,50), Bakery@(-30,62), Café@(30,64), Workshop@(-32,84), General Store@(32,86), Library@(-70,-28), Academy@(-70,28), Maker Space@(-88,32)
+inventory: 19/19 houses, 4/4 stalls — PASS
+
+LCG cross-check: 30 scatter tree spots replicated, max err vs node = 6.15e-05 u
+collision model (TRUE): 19 houses -> 21 radius-6 discs (Hearth Hall:3)
+
+### New buildings
+  Library (-70,-28) 12x9 h9 gable rect x -76.0..-64.0 z -32.5..-22.7
+    FAILS: none
+    WARNS: none
+    door approach reachable: yes, nearest reachable cell 0.00u away
+      min circle distance to Porch: 103.8u
+      min circle distance to Cloudwatch: 40.2u
+      min circle distance to Lucky Corner: 65.6u
+      min circle distance to Press Office: 83.5u
+      min circle distance to Hearthside: 42.2u
+      min circle distance to Hearth Hall: 64.8u
+      min circle distance to Ziri's CRT Nook: 121.7u
+      min circle distance to Growth A: 108.0u
+      min circle distance to Claude's Study: 33.1u
+      min circle distance to ChatGPT Workshop: 97.2u
+      min circle distance to Grok's Lab: 110.2u
+      min circle distance to Meta AI Lodge: 126.8u
+      min circle distance to Bakery: 98.5u
+      min circle distance to Café: 135.9u
+      min circle distance to Workshop: 118.3u
+      min circle distance to General Store: 153.0u
+      min circle distance to Academy: 56.0u
+      min circle distance to Maker Space: 62.6u
+  Academy (-70,28) 12x9 h9 flat rect x -76.0..-64.0 z 23.5..33.3
+    FAILS: none
+    WARNS: none
+    door approach reachable: yes, nearest reachable cell 0.00u away
+      min circle distance to Porch: 103.8u
+      min circle distance to Cloudwatch: 65.6u
+      min circle distance to Lucky Corner: 40.2u
+      min circle distance to Press Office: 56.3u
+      min circle distance to Hearthside: 49.5u
+      min circle distance to Hearth Hall: 91.9u
+      min circle distance to Ziri's CRT Nook: 108.0u
+      min circle distance to Growth A: 121.7u
+      min circle distance to Claude's Study: 76.2u
+      min circle distance to ChatGPT Workshop: 119.4u
+      min circle distance to Grok's Lab: 89.5u
+      min circle distance to Meta AI Lodge: 102.4u
+      min circle distance to Bakery: 52.5u
+      min circle distance to Café: 106.3u
+      min circle distance to Workshop: 67.7u
+      min circle distance to General Store: 117.3u
+      min circle distance to Library: 56.0u
+      min circle distance to Maker Space: 18.4u
+  Maker Space (-88,32) 10x8 h7 dome rect x -93.0..-83.0 z 28.0..36.8
+    FAILS: none
+    WARNS: none
+    door approach reachable: yes, nearest reachable cell 0.00u away
+      min circle distance to Porch: 122.3u
+      min circle distance to Cloudwatch: 80.6u
+      min circle distance to Lucky Corner: 58.5u
+      min circle distance to Press Office: 74.0u
+      min circle distance to Hearthside: 66.0u
+      min circle distance to Hearth Hall: 107.8u
+      min circle distance to Ziri's CRT Nook: 126.1u
+      min circle distance to Growth A: 139.6u
+      min circle distance to Claude's Study: 88.2u
+      min circle distance to ChatGPT Workshop: 136.5u
+      min circle distance to Grok's Lab: 107.1u
+      min circle distance to Meta AI Lodge: 119.4u
+      min circle distance to Bakery: 65.3u
+      min circle distance to Café: 122.3u
+      min circle distance to Workshop: 76.4u
+      min circle distance to General Store: 131.6u
+      min circle distance to Library: 62.6u
+      min circle distance to Academy: 18.4u
+
+### New stalls
+
+### Corridors
+  east: 11 centreline samples, unreachable: none, rect blockers: none
+  north: 11 centreline samples, unreachable: none, rect blockers: none
+  south: 7 centreline samples, unreachable: none, rect blockers: none
+  west: 11 centreline samples, unreachable: none, rect blockers: none
+  TOTAL corridor samples: 40
+
+### Quest points — nearest REACHABLE walkable cell (must be <= 8u)
+  lantern (8,-6): REACHABLE, nearest walkable cell 0.00u away
+  lantern (48,2): REACHABLE, nearest walkable cell 0.00u away
+  lantern (-4,-48): REACHABLE, nearest walkable cell 0.00u away
+  pickup-ember (-3,-11): REACHABLE, nearest walkable cell 0.00u away
+  pickup-ember (3,-11): REACHABLE, nearest walkable cell 0.00u away
+  pickup-ember (-4,-17): REACHABLE, nearest walkable cell 0.00u away
+  pickup-ember (4,-17): REACHABLE, nearest walkable cell 0.00u away
+  pickup-ember (0,-9): REACHABLE, nearest walkable cell 0.00u away
+  pickup-wisp (-20,-70): REACHABLE, nearest walkable cell 0.00u away
+  pickup-wisp (15,-80): REACHABLE, nearest walkable cell 0.00u away
+  pickup-wisp (-35,-60): REACHABLE, nearest walkable cell 0.00u away
+  pickup-coin (60,10): REACHABLE, nearest walkable cell 0.00u away
+  pickup-coin (80,-8): REACHABLE, nearest walkable cell 0.00u away
+  pickup-coin (95,15): REACHABLE, nearest walkable cell 0.00u away
+  npc-Muse (22,0): REACHABLE, nearest walkable cell 0.00u away
+  npc-Ember (-26,-6): REACHABLE, nearest walkable cell 0.00u away
+  npc-Nimbus (-22,-18): REACHABLE, nearest walkable cell 0.00u away
+  npc-Zing (-20,10): REACHABLE, nearest walkable cell 0.00u away
+  npc-Miro (-8,26): REACHABLE, nearest walkable cell 0.00u away
+  stall (-12.0,58.0): REACHABLE, nearest walkable cell 0.00u away
+  stall (12.0,60.0): REACHABLE, nearest walkable cell 0.00u away
+  stall (-20.0,74.0): REACHABLE, nearest walkable cell 0.00u away
+  stall (20.0,74.0): REACHABLE, nearest walkable cell 0.00u away
+  fire (0,-14): REACHABLE, nearest walkable cell 0.00u away
+  TOTAL quest points: 24
+
+Spawn (18, 6) walkable+reachable: True (blocked=False)
+
+### Static checks
+  node --check on extracted game JS: PASS
+  external refs in added lines (http/fetch/XHR/import): none — PASS
+  external refs in whole file: none — PASS
+  money/network words (wallet/price/money/payment/account/server/socket): none — PASS
+  phone CSS (<style> block, 4410 B, sha 0e0af64d0d0ac040): identical — PASS
+  phone JS (applyPhoneUI line): identical — PASS
+  lights: 3 -> 3 — PASS (no new lights)
+  scatter: trees 30 -> 30, bushes 11 -> 11, boulders 11 -> 11 — PASS
+  hall max top-y: 17.8 -> 17.8 — PASS
+
+### Mesh reconciliation (components from the code vs measured delta)
+  measured delta: +62 meshes, +0 sprites, +3 occluders
+  component table: +62 meshes, +0 sprites
+    Library (gable kit): 18 meshes, 0 sprites
+    Academy (flat kit): 28 meshes, 0 sprites
+    Maker Space (dome kit): 16 meshes, 0 sprites
+  reconciliation: PASS (measured 62/0/3 vs components 62/0 vs expected 62/0/3)
+
+TOTAL FAILS: 0
+corridor samples: 40; quest points: 24 (0 fails); draw calls: 1013 (prev 951, +62)
+results -> results_stage3.json

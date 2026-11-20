@@ -1,0 +1,440 @@
+{
+ "stage": 4,
+ "label": "Stage 4 Park",
+ "file": "hearth-3d-game-v2-v26s2s3s4-cornerfix.html",
+ "sha256": "d843d3c61ea73f20a63d77ffe2c2ddc1439b684de146c379c0ed496146e507f3",
+ "bytes": 86020,
+ "buildings": {
+  "Growth B": {
+   "rect": [
+    -42.0,
+    -34.0,
+    34.0,
+    42.8
+   ],
+   "stage": 4,
+   "fails": [],
+   "warns": [],
+   "notes": [
+    "  min circle distance to Porch: 75.3u",
+    "  min circle distance to Cloudwatch: 62.5u",
+    "  min circle distance to Lucky Corner: 16.1u",
+    "  min circle distance to Press Office: 21.4u",
+    "  min circle distance to Hearthside: 44.0u",
+    "  min circle distance to Hearth Hall: 82.5u",
+    "  min circle distance to Ziri's CRT Nook: 76.7u",
+    "  min circle distance to Growth A: 100.7u",
+    "  min circle distance to Claude's Study: 80.0u",
+    "  min circle distance to ChatGPT Workshop: 103.2u",
+    "  min circle distance to Grok's Lab: 57.0u",
+    "  min circle distance to Meta AI Lodge: 69.1u",
+    "  min circle distance to Bakery: 24.5u",
+    "  min circle distance to Caf\u00e9: 70.0u",
+    "  min circle distance to Workshop: 46.1u",
+    "  min circle distance to General Store: 82.4u",
+    "  min circle distance to Library: 72.1u",
+    "  min circle distance to Academy: 30.7u",
+    "  min circle distance to Maker Space: 47.4u",
+    "  min circle distance to Growth C: 111.6u"
+   ],
+   "door_reachable_within_8u": 0.0
+  },
+  "Growth C": {
+   "rect": [
+    48.0,
+    56.0,
+    -32.0,
+    -23.2
+   ],
+   "stage": 4,
+   "fails": [],
+   "warns": [],
+   "notes": [
+    "  min circle distance to Porch: 33.8u",
+    "  min circle distance to Cloudwatch: 82.1u",
+    "  min circle distance to Lucky Corner: 97.1u",
+    "  min circle distance to Press Office: 88.4u",
+    "  min circle distance to Hearthside: 85.9u",
+    "  min circle distance to Hearth Hall: 47.1u",
+    "  min circle distance to Ziri's CRT Nook: 57.7u",
+    "  min circle distance to Growth A: 14.0u",
+    "  min circle distance to Claude's Study: 93.1u",
+    "  min circle distance to ChatGPT Workshop: 30.0u",
+    "  min circle distance to Grok's Lab: 72.9u",
+    "  min circle distance to Meta AI Lodge: 81.0u",
+    "  min circle distance to Bakery: 119.8u",
+    "  min circle distance to Caf\u00e9: 93.9u",
+    "  min circle distance to Workshop: 138.2u",
+    "  min circle distance to General Store: 115.3u",
+    "  min circle distance to Library: 119.0u",
+    "  min circle distance to Academy: 131.5u",
+    "  min circle distance to Maker Space: 149.6u",
+    "  min circle distance to Growth B: 111.6u"
+   ],
+   "door_reachable_within_8u": 0.0
+  }
+ },
+ "stalls": {},
+ "plaza": {},
+ "park": {
+  "rect_check": {
+   "rect": [
+    50.0,
+    90.0,
+    19.5,
+    45.3
+   ],
+   "stage": 4,
+   "fails": [],
+   "warns": [],
+   "notes": [],
+   "door_reachable_within_8u": null
+  }
+ },
+ "park_trees": {
+  "(55,28)": {
+   "pond": 15.52,
+   "coin": 18.68,
+   "existing_tree": 23.85,
+   "fails": [],
+   "notes": ""
+  },
+  "(59,44)": {
+   "pond": 16.28,
+   "coin": 34.01,
+   "existing_tree": 39.81,
+   "fails": [],
+   "notes": ""
+  },
+  "(75,20)": {
+   "pond": 13.0,
+   "coin": 18.03,
+   "existing_tree": 19.85,
+   "fails": [],
+   "notes": ""
+  },
+  "(77,44)": {
+   "pond": 13.89,
+   "coin": 34.13,
+   "existing_tree": 43.93,
+   "fails": [],
+   "notes": ""
+  },
+  "(91,28)": {
+   "pond": 21.38,
+   "coin": 13.6,
+   "existing_tree": 32.68,
+   "fails": [],
+   "notes": "stands outside the 40x25 park footprint (x 50..90) \u2014 spec quirk, see SUMMARY.md"
+  },
+  "(95,44)": {
+   "pond": 27.73,
+   "coin": 29.0,
+   "existing_tree": 48.66,
+   "fails": [],
+   "notes": "stands outside the 40x25 park footprint (x 50..90) \u2014 spec quirk, see SUMMARY.md"
+  }
+ },
+ "park_lamps": {
+  "(58,22)": {
+   "tree": 6.71,
+   "bush": 30.92,
+   "boulder": 19.64,
+   "frozen": 5.66,
+   "house_circle_clearance": 14.88,
+   "fails": []
+  },
+  "(82,22)": {
+   "tree": 7.28,
+   "bush": 23.88,
+   "boulder": 26.25,
+   "frozen": 5.66,
+   "house_circle_clearance": 38.41,
+   "fails": []
+  },
+  "(70,44)": {
+   "tree": 7.0,
+   "bush": 30.58,
+   "boulder": 13.53,
+   "frozen": 10.0,
+   "house_circle_clearance": 29.78,
+   "fails": []
+  }
+ },
+ "corridors": {
+  "east": {
+   "samples": 11,
+   "unreachable_samples": [],
+   "rect_blockers": []
+  },
+  "north": {
+   "samples": 11,
+   "unreachable_samples": [],
+   "rect_blockers": []
+  },
+  "south": {
+   "samples": 7,
+   "unreachable_samples": [],
+   "rect_blockers": []
+  },
+  "west": {
+   "samples": 11,
+   "unreachable_samples": [],
+   "rect_blockers": []
+  }
+ },
+ "quest_points": {
+  "lantern@(8,-6)": 0.0,
+  "lantern@(48,2)": 0.0,
+  "lantern@(-4,-48)": 0.0,
+  "pickup-ember@(-3,-11)": 0.0,
+  "pickup-ember@(3,-11)": 0.0,
+  "pickup-ember@(-4,-17)": 0.0,
+  "pickup-ember@(4,-17)": 0.0,
+  "pickup-ember@(0,-9)": 0.0,
+  "pickup-wisp@(-20,-70)": 0.0,
+  "pickup-wisp@(15,-80)": 0.0,
+  "pickup-wisp@(-35,-60)": 0.0,
+  "pickup-coin@(60,10)": 0.0,
+  "pickup-coin@(80,-8)": 0.0,
+  "pickup-coin@(95,15)": 0.0,
+  "npc-Muse@(22,0)": 1.0,
+  "npc-Ember@(-26,-6)": 1.0,
+  "npc-Nimbus@(-22,-18)": 0.0,
+  "npc-Zing@(-20,10)": 0.0,
+  "npc-Miro@(-8,26)": 0.0,
+  "stall@(-12.0,58.0)": 0.0,
+  "stall@(12.0,60.0)": 0.0,
+  "stall@(-20.0,74.0)": 0.0,
+  "stall@(20.0,74.0)": 0.0,
+  "fire@(0,-14)": 0.0
+ },
+ "mesh": {
+  "prev": {
+   "meshes": 971,
+   "sprites": 42,
+   "draw_calls": 1013,
+   "materials": 964,
+   "lights": 3,
+   "occluders": 74
+  },
+  "now": {
+   "meshes": 1051,
+   "sprites": 46,
+   "draw_calls": 1097,
+   "materials": 1045,
+   "lights": 3,
+   "occluders": 76
+  },
+  "delta": {
+   "meshes": 80,
+   "sprites": 4,
+   "occluders": 2,
+   "materials": 81
+  },
+  "houses": {
+   "Porch": 18,
+   "Cloudwatch": 18,
+   "Lucky Corner": 18,
+   "Press Office": 28,
+   "Hearthside": 16,
+   "Hearth Hall": 32,
+   "Ziri's CRT Nook": 18,
+   "Growth A": 18,
+   "Claude's Study": 18,
+   "ChatGPT Workshop": 18,
+   "Grok's Lab": 28,
+   "Meta AI Lodge": 18,
+   "Bakery": 31,
+   "Caf\u00e9": 31,
+   "Workshop": 30,
+   "General Store": 30,
+   "Library": 18,
+   "Academy": 28,
+   "Maker Space": 16,
+   "Growth B": 18,
+   "Growth C": 19
+  },
+  "new_buildings_rect": {
+   "Growth B": {
+    "meshes": 18,
+    "sprites": 0
+   },
+   "Growth C": {
+    "meshes": 16,
+    "sprites": 0
+   },
+   "City Park": {
+    "meshes": 41,
+    "sprites": 4
+   }
+  },
+  "kit_points": {
+   "pond": {
+    "at": [
+     70,
+     32
+    ],
+    "meshes": 2,
+    "sprites": 1
+   },
+   "park bench NW": {
+    "at": [
+     62,
+     26
+    ],
+    "meshes": 4,
+    "sprites": 0
+   },
+   "park bench NE": {
+    "at": [
+     78,
+     26
+    ],
+    "meshes": 5,
+    "sprites": 0
+   },
+   "park bench SW": {
+    "at": [
+     62,
+     38
+    ],
+    "meshes": 4,
+    "sprites": 0
+   },
+   "park bench SE": {
+    "at": [
+     78,
+     38
+    ],
+    "meshes": 4,
+    "sprites": 0
+   },
+   "park lamp W": {
+    "at": [
+     58,
+     22
+    ],
+    "meshes": 3,
+    "sprites": 1
+   },
+   "park lamp E": {
+    "at": [
+     82,
+     22
+    ],
+    "meshes": 3,
+    "sprites": 1
+   },
+   "park lamp S": {
+    "at": [
+     70,
+     44
+    ],
+    "meshes": 3,
+    "sprites": 1
+   }
+  },
+  "hall_max_top_y": 17.8
+ },
+ "reconciliation": {
+  "components": [
+   {
+    "part": "Growth B (gable kit)",
+    "meshes": 18,
+    "sprites": 0
+   },
+   {
+    "part": "Growth C (porch kit)",
+    "meshes": 18,
+    "sprites": 0
+   },
+   {
+    "part": "Pond disc + centre stone",
+    "meshes": 2,
+    "sprites": 1
+   },
+   {
+    "part": "Park benches x4 (4 each)",
+    "meshes": 16,
+    "sprites": 0
+   },
+   {
+    "part": "Park lamps x3 (3 meshes + 1 sprite each)",
+    "meshes": 9,
+    "sprites": 3
+   },
+   {
+    "part": "Park trees x6 (2 each)",
+    "meshes": 12,
+    "sprites": 0
+   },
+   {
+    "part": "Ring path x4 + strip to east path",
+    "meshes": 5,
+    "sprites": 0
+   }
+  ],
+  "component_meshes": 80,
+  "component_sprites": 4,
+  "expected_delta": {
+   "meshes": 80,
+   "sprites": 4,
+   "occluders": 2
+  },
+  "measured_delta": {
+   "meshes": 80,
+   "sprites": 4,
+   "occluders": 2
+  },
+  "pass": true,
+  "note": "Per-house 7u buckets and rect counts overcount by adjacency (grass tufts inside buckets/rects; awning+posts outside the rect). The component table is derived from the CODE (kit counts), not from summed buckets \u2014 same method as STAGE1_AUDIT.md \u00a71."
+ },
+ "static_checks": {
+  "node_check": {
+   "pass": true,
+   "stderr": ""
+  },
+  "external_refs_in_diff": {},
+  "external_refs_whole_file": {},
+  "money_words": {},
+  "phone_css_untouched": {
+   "pass": true,
+   "style_sha": "0e0af64d0d0ac040"
+  },
+  "phone_js_untouched": {
+   "pass": true
+  },
+  "lights": {
+   "prev": 3,
+   "now": 3
+  },
+  "scatter_unchanged": {
+   "prev_trees": 30,
+   "now_trees": 36,
+   "prev_bushes": 11,
+   "now_bushes": 11,
+   "prev_boulders": 11,
+   "now_boulders": 11
+  },
+  "hall_max_top_y": {
+   "prev": 17.8,
+   "now": 17.8
+  }
+ },
+ "inventory": {
+  "expected_houses": 21,
+  "parsed_houses": 21,
+  "expected_stalls": 4,
+  "parsed_stalls": 4,
+  "fails": []
+ },
+ "lcg_max_err": 6.1523957506275e-05,
+ "totals": {
+  "building_fails": 0,
+  "corridor_samples": 40,
+  "quest_points": 24,
+  "quest_point_fails": 0,
+  "total_fails": 0
+ }
+}
