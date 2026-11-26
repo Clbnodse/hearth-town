@@ -763,3 +763,33 @@ api-50 tarball_sha256 e9126ee0260a3e0427ef88f2d09b5aaafc6ccb1276e6450d8ce7e5a82f
 api-51 tarball_sha256 f20030bf82fced4b97f30f982558a8b5d384a94573ec886c8fa82a46e49dba2e game_sha256 47eebca982ea341cf729102398e9f3c7e1f46aa0f3fc2f0d93158b8d751c997d
 api-52 tarball_sha256 0a1ad99daf7d25d0d46c8ea2f26780dd33b6c2fc9ec018b5b9e2d6936f40991a game_sha256 2dfbecf67d16ac5e440531d69326dd719baead7c2935fd2e8f784c281797660c
 api-53 tarball_sha256 8a682e2b3bfc5daf9eefd7de67ffe205c73e3e196b9c559a9b88e02bebe3f6bf game_sha256 2dfbecf67d16ac5e440531d69326dd719baead7c2935fd2e8f784c281797660c
+
+# Second pin: 2026-11-26T00:05:00Z (api-54 live; counted from /game-api/public/events, 5,028 events, 51 pages)
+# Delta on the first pin (2026-11-25T22:05:00Z): only new run_ids and run_ids whose head_hash changed are listed below.
+# Method unchanged: run heads = last run.chain_anchored head_hash per run_id in event order;
+# tip sha = sha256 of canonical JSON (sort_keys, compact) of the last event object;
+# rolling sha = sha256 over lines '<event_id>|<event_type>\n' in log order;
+# game sha = sha256 of the _GAME_V2_HTML constant (utf-8) in that version's server.py.
+
+[runs-delta]
+run run-ebbf06f524f6 69b92f7740b406901dcdfbbed21a7eeded03cf3511aea570fe30d75aea464cbc
+run run-31a82f66bbf7 1ec47e6c6b86cf0ac14ede90f361ca0e41c316e6bc524df680cfe7bba588664b
+run run-57a17fafef00 1e00d0cb6653417b7eb938564a51a834735bd8955dfb1a945c85c7acefca87fe
+run run-3d668b1912fb 2f598c892c8b5f82a3163d99e5d8cdcf05e2a39c8e73b7abffcfc6690ab2d498
+run run-e171040bc4ab 4a7a5ba095f69cb02cbf1500450dbc0ffe3781a8269601b3a39a4c700342b438
+run run-566b9e10af80 ec6824d408c37d13816035676a1832fa4d3383fc72c2a4e1a697f9e94ac0df6b
+run run-3d8c17838412 0db0f50e550c95e8aa46fb5e50c66ff05bd882f46cf08dd32245d7c32baf10ff
+run run-f6e77757d8b2 4f59f4727f2171ff9dfa3e07ad3f188eda8dc0d9aa20f12774a2a75b389ab775
+run run-24420458d263 ef97e8834ac194d48856ce241671d58677739ed58bc68d8b0f7796713e22dc5b
+
+[event-log-tip]
+tip_event_id evt-576358df
+tip_event_ts 2026-11-26T00:03:57Z
+tip_event_sha256 d35a6a259756b2ba5be23e9bd08aff6048d2847a3a4b6a3a8b952feb157a2083
+rolling_sha256_ids_types 89edce943aead09e515afdc5555a74b59000b60a91121e7729b105441d313e71
+total_events 5028
+raw_events_sha256 01364aa228848e83899c6ec52cc090a97b9e95e293506d8071235a044765a319
+
+[releases]
+api-54 tarball_sha256 06f901b4f2d05925439e5dfa458e9afdcfc70e844bfa9e9eb16ce9987c4477ee game_sha256 2dfbecf67d16ac5e440531d69326dd719baead7c2935fd2e8f784c281797660c
+
