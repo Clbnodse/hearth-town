@@ -793,3 +793,28 @@ raw_events_sha256 01364aa228848e83899c6ec52cc090a97b9e95e293506d8071235a044765a3
 [releases]
 api-54 tarball_sha256 06f901b4f2d05925439e5dfa458e9afdcfc70e844bfa9e9eb16ce9987c4477ee game_sha256 2dfbecf67d16ac5e440531d69326dd719baead7c2935fd2e8f784c281797660c
 
+
+# Third pin: 2026-11-26T00:45:00Z (api-55 live; counted from /game-api/public/events, 5,071 events, 51 pages)
+# Delta on the second pin (2026-11-26T00:05:00Z): only new run_ids and run_ids whose head_hash changed are listed below.
+# Method unchanged: run heads = last run.chain_anchored head_hash per run_id in event order;
+# tip sha = sha256 of canonical JSON (sort_keys, compact) of the last event object;
+# rolling sha = sha256 over lines '<event_id>|<event_type>\n' in log order;
+# game sha = sha256 of the _GAME_V2_HTML constant (utf-8) in that version's server.py.
+
+[runs-delta]
+run run-7f23aa84875c d0f76fd60381cc79d7c27434d83e213d0afacb77997d9fc175775c86d77cc56c
+run run-ec73403f1e9d db87862bd4bf08285e9bf2c7be443f867d3012844337fd2d4f8329d3fa6b089a
+run run-94b78cc394b7 0be9539caf3bd6e381936fcce1b6b6192f49c6a2556befef7d12c6890420e885
+run run-ec3251a2a322 f950f5920f3c9c02c7e3f4f996621b34d996fe8de0f112b8c3b5d5a855df25dd
+
+[event-log-tip]
+tip_event_id evt-8b584a8e
+tip_event_ts 2026-11-26T00:38:47Z
+tip_event_sha256 91ecff58b5cccb691719ba35d00242d36fdb7a160e76ad0a0c7964dad35512a0
+rolling_sha256_ids_types 4786f6589416dd6fc465bda869f11b822625926cfe70af8fd9c88633ef46c7ac
+total_events 5071
+raw_events_sha256 616d94a6611168c59b290419bff8f2f15b22324d2cf8fb872ffa616e9d8a5f80
+
+[releases]
+api-55 tarball_sha256 860e824d72d5c5e063acf4c8774bbdc93805d5b8c0a5fddd85b2ffcf1264a3c4 game_sha256 2dfbecf67d16ac5e440531d69326dd719baead7c2935fd2e8f784c281797660c
+
